@@ -1,0 +1,31 @@
+from real_sector.protocols.a2a_protocol import (
+    A2AArtifact,
+    A2AMessage,
+    A2AMessagePart,
+    AgentCard,
+    AgentExecutor,
+    AgentSkill,
+    EventQueue,
+    RequestContext,
+    TaskRequest,
+    TaskResponse,
+    TaskStatus,
+    TaskStatusUpdateEvent,
+    TaskArtifactUpdateEvent,
+)
+
+__all__ = [
+    "A2AArtifact",
+    "A2AMessage",
+    "A2AMessagePart",
+    "AgentCard",
+    "AgentExecutor",
+    "AgentSkill",
+    "EventQueue",
+    "RequestContext",
+    "TaskRequest",
+    "TaskResponse",
+    "TaskStatus",
+    "TaskStatusUpdateEvent",
+    "TaskArtifactUpdateEvent",
+]
