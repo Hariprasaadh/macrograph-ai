@@ -84,7 +84,7 @@ A successful response should include a completed task and artifacts.
 
 ### Call the MCP tools listing endpoint
 
-```bash
+
 curl -X POST http://127.0.0.1:8000/mcp \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}'
