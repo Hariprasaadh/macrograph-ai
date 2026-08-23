@@ -18,6 +18,8 @@ from .lifecycle import AgentExecutor, EventQueue, TaskManager
 from .streaming import task_event_stream
 from .registry import AgentRegistry, registry
 
+agent_registry = registry
+
 __all__ = [
     "A2AArtifact",
     "A2AMessage",
@@ -36,6 +38,8 @@ __all__ = [
     "TaskState",
     "TaskStatus",
     "TaskStatusUpdateEvent",
+    "agent_registry",
     "registry",
     "task_event_stream",
 ]
+
