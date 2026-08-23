@@ -1,9 +1,0 @@
-fastapi
-pydantic
-pandas
-yfinance
-requests
-nsepython
-duckdb
-pytest
-httpx2

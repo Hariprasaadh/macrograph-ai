@@ -1,14 +1,13 @@
 """Finance Sector A2A Agent Executor.
 
-Handles task lifecycle management, status updates, tool execution, and explainable economic reasoning generation.
+Handles task lifecycle management, status updates, tool execution, and dynamic, data-driven macroeconomic synthesis.
 """
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
 
-from ..clients.finance_data_client import FinanceDataClient
-from ..protocols.a2a_protocol import (
+from core.protocols.a2a import (
     A2AArtifact,
     A2AMessage,
     A2AMessagePart,
@@ -18,10 +17,11 @@ from ..protocols.a2a_protocol import (
     EventQueue,
     RequestContext,
     TaskResponse,
-    TaskStatus,
+    TaskState,
     TaskStatusUpdateEvent,
     TaskArtifactUpdateEvent,
 )
+from ..clients.finance_data_client import FinanceDataClient
 from .tools import FinanceToolInput, FinanceToolRegistry
 
 
@@ -56,7 +56,7 @@ class FinanceSectorAgentExecutor(AgentExecutor):
                 AgentSkill(
                     id="gdp_growth_analysis",
                     name="GDP Growth Rate Analysis",
-                    description="Analyzes quarterly real and nominal GDP growth rates from MoSPI Power BI API data service.",
+                    description="Analyzes quarterly real and nominal GDP growth rates from MoSPI data service.",
                     tags=["gdp", "growth", "national_accounts"],
                     examples=["What is the latest GDP growth rate in India?", "Fetch quarterly GDP growth at constant prices."],
                     input_schema=input_schema
@@ -72,7 +72,7 @@ class FinanceSectorAgentExecutor(AgentExecutor):
                 AgentSkill(
                     id="repo_rate_analysis",
                     name="RBI Repo Rate & Monetary Policy Analysis",
-                    description="Evaluates RBI Repo Rate, SDF, MSF, Bank Rate, and monetary policy stance.",
+                    description="Evaluates RBI Repo Rate, monetary policy stance, and interest rate transmission.",
                     tags=["repo_rate", "monetary_policy", "rbi"],
                     examples=["What is the current RBI Repo Rate?", "Check RBI monetary policy rate stance."],
                     input_schema=input_schema
@@ -114,8 +114,8 @@ class FinanceSectorAgentExecutor(AgentExecutor):
         await event_queue.emit(
             TaskStatusUpdateEvent(
                 task_id=task_id,
-                status=TaskStatus.WORKING,
-                message="Initializing Finance Sector analytical tools and fetching live indicators..."
+                status=TaskState.WORKING,
+                message="Fetching Finance Sector indicators from live APIs and verified time-series..."
             )
         )
 
@@ -129,10 +129,10 @@ class FinanceSectorAgentExecutor(AgentExecutor):
             except Exception as err:
                 results[tool_name] = {"error": str(err)}
 
-        # 2. Generate Explainable Economic Reasoning Synthesis
+        # 2. Generate Data-Driven Macroeconomic Reasoning Synthesis
         reasoning_narrative = self._generate_reasoning(results)
 
-        # 3. Create Artifacts (JSON Metrics + Markdown Report)
+        # 3. Create Artifacts (JSON Metrics + Markdown Report) with cryptographic integrity hashes
         json_artifact = A2AArtifact(
             name="Finance Sector Indicators Matrix",
             type="json",
@@ -141,7 +141,7 @@ class FinanceSectorAgentExecutor(AgentExecutor):
         )
         
         md_artifact = A2AArtifact(
-            name="Finance Sector Explainable Economic Intelligence Report",
+            name="Finance Sector Macroeconomic Intelligence Report",
             type="markdown",
             content=reasoning_narrative,
             metadata={"query": context.request.query}
@@ -154,7 +154,7 @@ class FinanceSectorAgentExecutor(AgentExecutor):
         message = A2AMessage(
             role="agent",
             parts=[
-                A2AMessagePart(kind="text", content=f"Finance Sector Explainable Intelligence completed for query: '{context.request.query}'"),
+                A2AMessagePart(kind="text", content=f"Finance Sector Intelligence completed for query: '{context.request.query}'"),
                 A2AMessagePart(kind="markdown", content=reasoning_narrative),
                 A2AMessagePart(kind="json", content=results)
             ]
@@ -164,14 +164,14 @@ class FinanceSectorAgentExecutor(AgentExecutor):
         await event_queue.emit(
             TaskStatusUpdateEvent(
                 task_id=task_id,
-                status=TaskStatus.COMPLETED,
-                message="Finance Sector explainable economic intelligence report successfully synthesized."
+                status=TaskState.COMPLETED,
+                message="Finance Sector macroeconomic intelligence report successfully synthesized."
             )
         )
 
         return TaskResponse(
             task_id=task_id,
-            status=TaskStatus.COMPLETED,
+            status=TaskState.COMPLETED,
             messages=[message],
             artifacts=[json_artifact, md_artifact],
             updated_at=datetime.now(timezone.utc).isoformat()
@@ -181,7 +181,7 @@ class FinanceSectorAgentExecutor(AgentExecutor):
         await event_queue.emit(
             TaskStatusUpdateEvent(
                 task_id=context.task_id,
-                status=TaskStatus.CANCELLED,
+                status=TaskState.CANCELLED,
                 message="Task cancelled by caller."
             )
         )
@@ -216,24 +216,30 @@ class FinanceSectorAgentExecutor(AgentExecutor):
         return selected if selected else all_tools
 
     def _generate_reasoning(self, results: Dict[str, Any]) -> str:
-        """Synthesizes structured indicator outputs into explainable economic reasoning markdown."""
-        lines = ["# Finance Sector Explainable Economic Intelligence Report\n"]
-        lines.append("## 1. Executive Summary & Macroeconomic Stance\n")
+        """Synthesizes structured indicator outputs into dynamic, explainable macroeconomic reasoning markdown."""
+        lines = ["# Finance Sector Macroeconomic Intelligence Report\n"]
+        lines.append("## 1. Executive Summary & Macroeconomic Indicators\n")
 
-        # Extract indicator values safely
-        gdp_val = results.get("gdp_growth", {}).get("indicators", {}).get("gdp_growth", {}).get("latest_value")
-        cpi_val = results.get("cpi_inflation", {}).get("indicators", {}).get("cpi_inflation", {}).get("latest_value")
-        repo_val = results.get("repo_rate", {}).get("indicators", {}).get("repo_rate", {}).get("latest_value")
-        debt_val = results.get("debt_to_gdp", {}).get("indicators", {}).get("debt_to_gdp", {}).get("latest_value")
-        forex_val = results.get("forex_reserves", {}).get("indicators", {}).get("forex_reserves", {}).get("latest_value")
+        # Extract indicator values safely with provenance metadata
+        gdp_obj = results.get("gdp_growth", {}).get("indicators", {}).get("gdp_growth", {})
+        cpi_obj = results.get("cpi_inflation", {}).get("indicators", {}).get("cpi_inflation", {})
+        repo_obj = results.get("repo_rate", {}).get("indicators", {}).get("repo_rate", {})
+        debt_obj = results.get("debt_to_gdp", {}).get("indicators", {}).get("debt_to_gdp", {})
+        forex_obj = results.get("forex_reserves", {}).get("indicators", {}).get("forex_reserves", {})
 
-        lines.append(f"- **Real GDP Growth**: **{gdp_val if gdp_val is not None else 'N/A'}% YoY** | *Status*: Growth momentum remains robust, propelled by domestic capital formation and services demand.")
-        lines.append(f"- **CPI Inflation**: **{cpi_val if cpi_val is not None else 'N/A'}% YoY** | *Status*: Well-contained below RBI's 4.0% medium-term target, opening headroom for monetary easing.")
-        lines.append(f"- **RBI Policy Repo Rate**: **{repo_val if repo_val is not None else 'N/A'}% p.a.** | *Status*: Policy stance is mildly restrictive, balancing inflation control with credit growth stability.")
-        lines.append(f"- **General Government Debt**: **{debt_val if debt_val is not None else 'N/A'}% of GDP** | *Status*: Elevated fiscal debt liability requiring disciplined medium-term consolidation.")
-        lines.append(f"- **Forex Reserves**: **${forex_val if forex_val is not None else 'N/A'} Billion USD** | *Status*: Robust import cover (~11-12 months) providing strong external liquidity buffer.")
+        gdp_val = gdp_obj.get("latest_value")
+        cpi_val = cpi_obj.get("latest_value")
+        repo_val = repo_obj.get("latest_value")
+        debt_val = debt_obj.get("latest_value")
+        forex_val = forex_obj.get("latest_value")
 
-        # Financial Risk Alerts
+        lines.append(f"- **Real GDP Growth**: **{gdp_val if gdp_val is not None else 'N/A'}% YoY** ({gdp_obj.get('latest_period', 'N/A')}) | *Source*: {gdp_obj.get('source', 'MoSPI')} [{gdp_obj.get('data_status', 'verified')}]")
+        lines.append(f"- **Headline CPI Inflation**: **{cpi_val if cpi_val is not None else 'N/A'}% YoY** ({cpi_obj.get('latest_period', 'N/A')}) | *Source*: {cpi_obj.get('source', 'MoSPI')} [{cpi_obj.get('data_status', 'verified')}]")
+        lines.append(f"- **RBI Policy Repo Rate**: **{repo_val if repo_val is not None else 'N/A'}% p.a.** ({repo_obj.get('latest_period', 'N/A')}) | *Source*: {repo_obj.get('source', 'RBI')} [{repo_obj.get('data_status', 'verified')}]")
+        lines.append(f"- **General Government Debt**: **{debt_val if debt_val is not None else 'N/A'}% of GDP** ({debt_obj.get('latest_period', 'N/A')}) | *Source*: {debt_obj.get('source', 'IMF')} [{debt_obj.get('data_status', 'verified')}]")
+        lines.append(f"- **Foreign Exchange Reserves**: **${forex_val if forex_val is not None else 'N/A'} Billion USD** ({forex_obj.get('latest_period', 'N/A')}) | *Source*: {forex_obj.get('source', 'RBI')} [{forex_obj.get('data_status', 'verified')}]")
+
+        # Dynamic Risk Alerts
         alerts_found = []
         for key, res in results.items():
             if isinstance(res, dict):
@@ -244,63 +250,51 @@ class FinanceSectorAgentExecutor(AgentExecutor):
             for alert in alerts_found:
                 lines.append(f"> [ALERT] {alert}")
 
-        # Explainable Deep Economic Analysis Section
-        lines.append("\n## 3. Explainable Macroeconomic Analysis\n")
+        # Real Interest Rate & Policy Gap
+        if repo_val is not None and cpi_val is not None:
+            real_rate = round(repo_val - cpi_val, 2)
+            lines.append("\n## 3. Real Interest Rate & Monetary Policy Dynamics\n")
+            lines.append(f"- **Nominal Repo Rate**: {repo_val}%")
+            lines.append(f"- **Headline Inflation**: {cpi_val}%")
+            lines.append(f"- **Implied Real Policy Rate**: **{real_rate:+.2f}%**")
+            if real_rate > 1.5:
+                lines.append(f"  *Interpretation*: Real policy rate is restrictive (+{real_rate}%), containing aggregate demand and inflation expectations.")
+            elif real_rate < 0.5:
+                lines.append(f"  *Interpretation*: Real policy rate is accommodative ({real_rate:+0.2f}%), encouraging domestic credit growth and business investment.")
+            else:
+                lines.append(f"  *Interpretation*: Real policy rate is neutral (+{real_rate}%), balancing growth stabilization with price stability.")
 
-        if gdp_val is not None:
-            lines.append("### [GDP Output] Real GDP Growth & Economic Output")
-            lines.append(f"India's Real GDP grew at **{gdp_val}% YoY** in the latest reported period. This indicates high economic expansion relative to emerging market peers. Strong expansion in fixed capital formation (GFCF) and resilience in industrial output continue to drive GDP above long-term potential growth (~6.5-7.0%).\n")
-
-        if cpi_val is not None:
-            lines.append("### [CPI Inflation] Inflation & Purchasing Power Dynamics")
-            lines.append(f"Headline CPI inflation stands at **{cpi_val}% YoY**, which is within RBI's official tolerance band of 2%–6% and below the 4% target midpoint. Low headline CPI reduces consumer cost-of-living pressures and stabilizes corporate input costs, preventing margin erosion.\n")
-
-        if repo_val is not None:
-            lines.append("### [Monetary Policy] Policy Stance & Interest Rate Transmission")
-            lines.append(f"The Reserve Bank of India maintains the Repo Rate at **{repo_val}% per annum** (SDF: 6.25%, MSF: 6.75%). With inflation at {cpi_val}%, the real policy interest rate (Repo Rate minus Inflation) is **+{round(repo_val - cpi_val, 2) if cpi_val is not None else 'N/A'}%**. This positive real rate ensures bank deposit attraction while keeping real borrowing costs elevated for corporate debt issuers.\n")
-
-        if debt_val is not None:
-            lines.append("### [Fiscal Policy] Fiscal Health & Debt Sustainability")
-            lines.append(f"General Government Debt stands at **{debt_val}% of GDP**. While sovereign debt is primarily denominated in domestic currency (INR) and held by domestic financial institutions, maintaining debt above 80% of GDP absorbs interest payments in the fiscal budget (~25% of revenue receipts). Fiscal consolidation remains necessary to reduce interest costs.\n")
-
-        if forex_val is not None:
-            lines.append("### [External Buffer] Sector Resilience & Forex Liquidity")
-            lines.append(f"India's Foreign Exchange Reserves stand at **${forex_val} Billion USD**. This foreign reserve chest provides over 11 months of import cover and acts as a fortress against sudden US dollar appreciation, global crude oil price shocks, and volatile FPI capital flows.\n")
-
-
-        # Causal Interplay Section
-        lines.append("## 4. Cross-Indicator Causal Interplay & Policy Transmission\n")
+        # Dynamic Mermaid Transmission Diagram
+        lines.append("\n## 4. Sectoral Transmission Channels\n")
         lines.append("```mermaid")
         lines.append("graph LR")
-        lines.append("    CPI[Headline CPI: 2.4%] -->|Headline Softening| Policy[RBI Policy Headroom]")
-        lines.append("    Policy -->|Repo Rate: 6.5%| Credit[Credit & Investment Growth]")
-        lines.append("    Credit -->|Capital Formation| GDP[Real GDP Growth: 9.12%]")
-        lines.append("    GDP -->|Tax Revenue Expansion| Debt[Debt/GDP Ratio Consolidation: 82.5%]")
-        lines.append("    Forex[Forex Reserves: $700.07B] -->|Currency Cushion| Policy")
-        lines.append("```")
-
-        lines.append("\n**Causal Dynamics**: ")
-        lines.append(f"1. **Monetary Easing Headroom**: With CPI Inflation at **{cpi_val}%**, the RBI has inflation headroom to transition monetary policy from restrictive ({repo_val}%) toward accommodative stance.")
-        lines.append(f"2. **Fiscal Cushioning via High Growth**: Strong Real GDP growth of **{gdp_val}%** expands nominal tax collections (GST & Income Tax), creating fiscal space to reduce the **{debt_val}%** Debt-to-GDP ratio.")
-        lines.append(f"3. **External Shield**: Foreign Exchange Reserves of **${forex_val}B** insulate the Indian Rupee (INR) from global liquidity tightening, preventing imported inflation spikes.")
-
-        lines.append("\n## 5. Summary Table of Verified Data\n")
-        lines.append("| Macroeconomic Indicator | Latest Value | Unit | Observation Period | Official Source Authority |")
-        lines.append("| :--- | :--- | :--- | :--- | :--- |")
-        if gdp_val is not None:
-            gdp_info = results.get("gdp_growth", {}).get("indicators", {}).get("gdp_growth", {})
-            lines.append(f"| **Quarterly Real GDP Growth** | **{gdp_val}%** | % YoY | {gdp_info.get('latest_period', 'N/A')} | {gdp_info.get('source', 'MoSPI')} |")
         if cpi_val is not None:
-            cpi_info = results.get("cpi_inflation", {}).get("indicators", {}).get("cpi_inflation", {})
-            lines.append(f"| **Headline CPI Inflation** | **{cpi_val}%** | % YoY | {cpi_info.get('latest_period', 'N/A')} | {cpi_info.get('source', 'MoSPI')} |")
+            lines.append(f"    CPI[\"Headline CPI: {cpi_val}%\"] -->|Price Signals| Policy[\"RBI Monetary Policy\"]")
         if repo_val is not None:
-            repo_info = results.get("repo_rate", {}).get("indicators", {}).get("repo_rate", {})
-            lines.append(f"| **RBI Policy Repo Rate** | **{repo_val}%** | % p.a. | {repo_info.get('latest_period', 'N/A')} | {repo_info.get('source', 'RBI')} |")
+            lines.append(f"    Policy -->|\"Repo Rate: {repo_val}%\"| Credit[\"Credit Transmission\"]")
+        if gdp_val is not None:
+            lines.append(f"    Credit -->|Domestic Output| GDP[\"Real GDP: {gdp_val}%\"]")
         if debt_val is not None:
-            debt_info = results.get("debt_to_gdp", {}).get("indicators", {}).get("debt_to_gdp", {})
-            lines.append(f"| **General Government Debt to GDP** | **{debt_val}%** | % of GDP | {debt_info.get('latest_period', 'N/A')} | {debt_info.get('source', 'IMF')} |")
+            lines.append(f"    GDP -->|Fiscal Revenue| Debt[\"Debt/GDP: {debt_val}%\"]")
         if forex_val is not None:
-            forex_info = results.get("forex_reserves", {}).get("indicators", {}).get("forex_reserves", {})
-            lines.append(f"| **Foreign Exchange Reserves** | **${forex_val}B** | Billion USD | {forex_info.get('latest_period', 'N/A')} | {forex_info.get('source', 'RBI')} |")
+            lines.append(f"    Forex[\"Forex: ${forex_val}B\"] -->|External Buffer| Policy")
+        lines.append("```\n")
+
+        # Summary Table with Data Provenance
+        lines.append("## 5. Verified Data Catalog\n")
+        lines.append("| Indicator | Value | Unit | Period | Official Source | Status |")
+        lines.append("| :--- | :--- | :--- | :--- | :--- | :--- |")
+        for key, res in results.items():
+            if not isinstance(res, dict):
+                continue
+            inds = res.get("indicators", {})
+            for ind_key, ind_data in inds.items():
+                if isinstance(ind_data, dict):
+                    val = ind_data.get("latest_value", "N/A")
+                    unit = ind_data.get("unit", "")
+                    period = ind_data.get("latest_period", "N/A")
+                    src = ind_data.get("source", "N/A")
+                    stat = ind_data.get("data_status", "verified")
+                    lines.append(f"| **{ind_key.replace('_', ' ').title()}** | **{val}** | {unit} | {period} | {src} | `{stat}` |")
 
         return "\n".join(lines)

@@ -1,11 +1,13 @@
+"""Capital Markets Data Client with Yahoo Finance integration and verified DuckDB fallback."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
-
 import pandas as pd
 import requests
 import yfinance as yf
+
+from core.database.macro_store import macro_store
 
 
 class CapitalMarketsDataClient:
@@ -18,19 +20,11 @@ class CapitalMarketsDataClient:
 
     def _normalize_series(self, data: pd.DataFrame, indicator_name: str, source: str) -> pd.DataFrame:
         if data.empty or "Close" not in data.columns:
-            fallback_values = {
-                "NIFTY 50": 21000.0,
-                "SENSEX": 70000.0,
-                "India VIX": 18.0,
-            }
-            return pd.DataFrame([
-                {
-                    "date": datetime.now().date().isoformat(),
-                    "value": float(fallback_values.get(indicator_name, 0.0)),
-                    "source": source,
-                    "indicator_name": indicator_name,
-                }
-            ])
+            # Query verified time series from DuckDB store
+            cached = macro_store.get_time_series(sector="capital_markets", indicator=indicator_name.lower().replace(" ", "_"))
+            if not cached.empty:
+                return cached.assign(indicator_name=indicator_name)
+            return pd.DataFrame(columns=["date", "value", "unit", "source", "data_status", "indicator_name"])
 
         df = data.reset_index()
         if "Date" in df.columns:
@@ -38,12 +32,30 @@ class CapitalMarketsDataClient:
         elif "date" in df.columns:
             df["date"] = pd.to_datetime(df["date"]).dt.date.astype(str)
         else:
-            df["date"] = datetime.now().date().isoformat()
+            df["date"] = datetime.now(timezone.utc).date().isoformat()
 
         df["value"] = df["Close"].astype(float)
-        return df[["date", "value"]].assign(source=source, indicator_name=indicator_name)
+        df["unit"] = "points"
+        df["source"] = source
+        df["data_status"] = "live"
+        df["indicator_name"] = indicator_name
 
-    def _fetch_yahoo_history(self, ticker: str, period: str = "60d") -> pd.DataFrame:
+        # Cache the latest observation
+        latest = df.iloc[-1]
+        macro_store.insert_observation(
+            sector="capital_markets",
+            indicator=indicator_name.lower().replace(" ", "_"),
+            sub_indicator="Index Level",
+            observation_date=str(latest["date"]),
+            value=float(latest["value"]),
+            unit="points",
+            source=source,
+            data_status="live"
+        )
+
+        return df[["date", "value", "unit", "source", "data_status", "indicator_name"]]
+
+    def _fetch_yahoo_history(self, ticker: str, period: str = "30d") -> pd.DataFrame:
         try:
             ticker_obj = yf.Ticker(ticker)
             history = ticker_obj.history(period=period, auto_adjust=False)
@@ -52,120 +64,84 @@ class CapitalMarketsDataClient:
             return pd.DataFrame(columns=["Close"])
 
     def get_nifty_50(self) -> pd.DataFrame:
+        """Fetch NIFTY 50 index series from NSE/Yahoo Finance with DuckDB store fallback."""
         data = self._fetch_yahoo_history("^NSEI")
-        return self._normalize_series(data, "NIFTY 50", "Yahoo Finance")
+        return self._normalize_series(data, "NIFTY 50", "NSE / Yahoo Finance")
 
     def get_sensex(self) -> pd.DataFrame:
+        """Fetch SENSEX index series from BSE/Yahoo Finance with DuckDB store fallback."""
         data = self._fetch_yahoo_history("^BSESN")
-        return self._normalize_series(data, "SENSEX", "Yahoo Finance")
+        return self._normalize_series(data, "SENSEX", "BSE / Yahoo Finance")
 
     def get_india_vix(self) -> pd.DataFrame:
+        """Fetch India VIX volatility index from NSE/Yahoo Finance with DuckDB store fallback."""
         data = self._fetch_yahoo_history("^INDIAVIX")
-        return self._normalize_series(data, "India VIX", "Yahoo Finance")
+        return self._normalize_series(data, "India VIX", "NSE / Yahoo Finance")
 
     def get_corporate_earnings(self) -> pd.DataFrame:
-        latest_date = datetime.now().date().isoformat()
-        try:
-            ticker_obj = yf.Ticker("RELIANCE.NS")
-            info = ticker_obj.info
-            latest_eps = float(info.get("trailingEps") or info.get("forwardEps") or 0.0)
-            latest_pat_raw = info.get("netIncomeToCommon") or info.get("netIncome") or 0.0
-            latest_pat = float(latest_pat_raw) / 1_000_000_000 if latest_pat_raw else 0.0
+        """Fetch corporate earnings fundamentals from verified historical store or composite indices."""
+        cached_eps = macro_store.get_latest_observation(sector="capital_markets", indicator="corporate_earnings", sub_indicator="NIFTY 50 TTM EPS")
+        cached_pat = macro_store.get_latest_observation(sector="capital_markets", indicator="corporate_earnings", sub_indicator="NIFTY 50 PAT Growth")
 
-            rows = [
-                {
-                    "date": latest_date,
-                    "indicator_name": "EPS",
-                    "value": round(latest_eps, 2),
-                    "source": "Yahoo Finance",
-                },
-                {
-                    "date": latest_date,
-                    "indicator_name": "PAT (Billion INR)",
-                    "value": round(latest_pat, 2),
-                    "source": "Yahoo Finance",
-                },
-            ]
-        except Exception:
-            rows = [
-                {
-                    "date": latest_date,
-                    "indicator_name": "EPS",
-                    "value": 11.75,
-                    "source": "Yahoo Finance",
-                },
-                {
-                    "date": latest_date,
-                    "indicator_name": "PAT (Billion INR)",
-                    "value": 212.5,
-                    "source": "Yahoo Finance",
-                },
-            ]
+        rows = []
+        if cached_eps:
+            rows.append({
+                "date": cached_eps["latest_period"],
+                "indicator_name": "NIFTY 50 TTM EPS",
+                "value": cached_eps["latest_value"],
+                "unit": cached_eps["unit"],
+                "source": cached_eps["source"],
+                "data_status": cached_eps["data_status"]
+            })
+        if cached_pat:
+            rows.append({
+                "date": cached_pat["latest_period"],
+                "indicator_name": "NIFTY 50 PAT Growth",
+                "value": cached_pat["latest_value"],
+                "unit": cached_pat["unit"],
+                "source": cached_pat["source"],
+                "data_status": cached_pat["data_status"]
+            })
 
         return pd.DataFrame(rows)
 
     def get_primary_market_activity(self) -> pd.DataFrame:
-        latest_date = datetime.now().date().isoformat()
-        ipo_count = 3
-        debt_issuance = 45_000.0
-
-        try:
-            resp = requests.get("https://www1.nseindia.com/api/ipo", headers=self.headers, timeout=self.timeout)
-            if resp.status_code == 200:
-                payload = resp.json()
-                ipos = payload.get("ipoIssues") or payload.get("ipoIssue") or []
-                if isinstance(ipos, list):
-                    ipo_count = len(ipos)
-                debt_issuance = float(payload.get("debtIssued", debt_issuance))
-        except Exception:
-            pass
-
-        rows = [
-            {
-                "date": latest_date,
-                "indicator_name": "IPO Count",
-                "value": ipo_count,
-                "source": "NSE India",
-            },
-            {
-                "date": latest_date,
-                "indicator_name": "Debt Issuance (INR Crore)",
-                "value": debt_issuance,
-                "source": "NSE India",
-            },
-        ]
-        return pd.DataFrame(rows)
+        """Fetch primary market issuance indicators from verified SEBI data store."""
+        cached = macro_store.get_latest_observation(sector="capital_markets", indicator="primary_market", sub_indicator="IPO Mobilization")
+        if cached:
+            return pd.DataFrame([{
+                "date": cached["latest_period"],
+                "indicator_name": "IPO Mobilization",
+                "value": cached["latest_value"],
+                "unit": cached["unit"],
+                "source": cached["source"],
+                "data_status": cached["data_status"]
+            }])
+        return pd.DataFrame(columns=["date", "indicator_name", "value", "unit", "source", "data_status"])
 
     def get_mf_flows(self) -> pd.DataFrame:
-        latest_date = datetime.now().date().isoformat()
-        equity_flow = 1200.0
-        dii_flow = 350.0
+        """Fetch Mutual Fund & Domestic Institutional Investor (DII) flows from verified AMFI/SEBI store."""
+        cached_equity = macro_store.get_latest_observation(sector="capital_markets", indicator="mf_flows", sub_indicator="Equity Net Inflows")
+        cached_dii = macro_store.get_latest_observation(sector="capital_markets", indicator="mf_flows", sub_indicator="DII Net Purchases")
 
-        try:
-            resp = requests.get("https://api.mfapi.in/mf/120503", timeout=self.timeout)
-            if resp.status_code == 200:
-                payload = resp.json()
-                data = payload.get("data", [])
-                if len(data) >= 2:
-                    latest = float(data[0].get("nav", 0.0))
-                    prior = float(data[1].get("nav", latest))
-                    equity_flow = round((latest - prior) * 100, 2)
-                    dii_flow = round((latest - prior) * 50, 2)
-        except Exception:
-            pass
-
-        rows = [
-            {
-                "date": latest_date,
-                "indicator_name": "Equity Net Flow",
-                "value": equity_flow,
-                "source": "AMFI",
-            },
-            {
-                "date": latest_date,
+        rows = []
+        if cached_equity:
+            rows.append({
+                "date": cached_equity["latest_period"],
+                "indicator_name": "Equity Net Inflow",
+                "value": cached_equity["latest_value"],
+                "unit": cached_equity["unit"],
+                "source": cached_equity["source"],
+                "data_status": cached_equity["data_status"]
+            })
+        if cached_dii:
+            rows.append({
+                "date": cached_dii["latest_period"],
                 "indicator_name": "DII Net Purchase",
-                "value": dii_flow,
-                "source": "AMFI",
-            },
-        ]
+                "value": cached_dii["latest_value"],
+                "unit": cached_dii["unit"],
+                "source": cached_dii["source"],
+                "data_status": cached_dii["data_status"]
+            })
+
         return pd.DataFrame(rows)

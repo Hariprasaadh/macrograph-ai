@@ -1,43 +1,35 @@
-"""FastAPI surface for Real Sector Agent — A2A Protocol and MCP Tools integration.
-
-Provides:
-- A2A Agent Card Discovery: /.well-known/agent.json & /real-sector/agent-card
-- A2A Task Management API: /a2a/tasks, /a2a/tasks/{task_id}, /a2a/tasks/{task_id}/cancel
-- MCP (Model Context Protocol) JSON-RPC 2.0 Endpoint: /mcp & /real-sector/mcp
-- Legacy tool compatibility: /real-sector/tools and /real-sector/tools/{tool_name}
-"""
+"""FastAPI surface for Real Sector Agent — A2A Protocol and FastMCP Tools integration."""
 from __future__ import annotations
 
 from typing import Any, Dict
 from fastapi import FastAPI, HTTPException, Request
+from sse_starlette.sse import EventSourceResponse
 
+from core.protocols.a2a import (
+    AgentCard,
+    TaskManager,
+    TaskRequest,
+    TaskResponse,
+    TaskState,
+    task_event_stream,
+)
 from ..agents.executor import RealSectorAgentExecutor
 from ..agents.response_models import SectorResponse
 from ..agents.tools import SectorToolInput, SectorToolRegistry
-from ..protocols.a2a_protocol import (
-    AgentCard,
-    EventQueue,
-    RequestContext,
-    TaskRequest,
-    TaskResponse,
-    TaskStatus,
-)
-from ..protocols.mcp_protocol import handle_mcp_rpc
 from ..services.pipeline import RealSectorPipeline
+from ..mcp_server import mcp_server
 
 
 def create_app(pipeline: RealSectorPipeline | None = None) -> FastAPI:
     application = FastAPI(
-        title="Macrograph AI — Real Sector Agent (A2A & MCP)",
+        title="Macrograph AI — Real Sector Agent (A2A & FastMCP)",
         version="1.0.0",
-        description="A2A Protocol & MCP Compliant Real Sector Macroeconomic Intelligence Agent"
+        description="A2A Protocol & FastMCP Compliant Real Sector Macroeconomic Intelligence Agent"
     )
     active_pipeline = pipeline or RealSectorPipeline()
     registry = SectorToolRegistry(active_pipeline)
     executor = RealSectorAgentExecutor(active_pipeline)
-
-    # In-memory store for active and completed A2A tasks
-    task_store: Dict[str, TaskResponse] = {}
+    task_manager = TaskManager()
 
     @application.get("/health")
     def health() -> dict[str, object]:
@@ -55,50 +47,31 @@ def create_app(pipeline: RealSectorPipeline | None = None) -> FastAPI:
 
     @application.post("/a2a/tasks", response_model=TaskResponse)
     async def create_task(task_req: TaskRequest) -> TaskResponse:
-        context = RequestContext(task_id=task_req.task_id, request=task_req)
-        event_queue = EventQueue()
-        
-        # Execute task synchronously through the executor
-        response = await executor.execute(context, event_queue)
-        task_store[response.task_id] = response
-        return response
+        return await task_manager.run_task(executor, task_req, background=False)
 
     @application.get("/a2a/tasks/{task_id}", response_model=TaskResponse)
     def get_task(task_id: str) -> TaskResponse:
-        if task_id not in task_store:
+        task = task_manager.get_task(task_id)
+        if not task:
             raise HTTPException(status_code=404, detail=f"Task ID '{task_id}' not found.")
-        return task_store[task_id]
+        return task
+
+    @application.get("/a2a/tasks/{task_id}/events")
+    async def task_events(task_id: str) -> EventSourceResponse:
+        task = task_manager.get_task(task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail=f"Task ID '{task_id}' not found.")
+        event_queue = task_manager.get_event_queue(task_id)
+        return EventSourceResponse(task_event_stream(event_queue, task_id))
 
     @application.post("/a2a/tasks/{task_id}/cancel")
     async def cancel_task(task_id: str) -> Dict[str, Any]:
-        if task_id not in task_store:
+        success = await task_manager.cancel_task(task_id, executor)
+        if not success:
             raise HTTPException(status_code=404, detail=f"Task ID '{task_id}' not found.")
-        
-        existing = task_store[task_id]
-        context = RequestContext(
-            task_id=task_id,
-            request=TaskRequest(task_id=task_id, query="")
-        )
-        event_queue = EventQueue()
-        success = await executor.cancel(context, event_queue)
-        
-        existing.status = TaskStatus.CANCELLED
-        task_store[task_id] = existing
-        return {"task_id": task_id, "status": TaskStatus.CANCELLED, "success": success}
+        return {"task_id": task_id, "status": TaskState.CANCELLED, "success": True}
 
-    # --- MCP Protocol JSON-RPC Endpoint ---
-
-    @application.post("/mcp")
-    @application.post("/real-sector/mcp")
-    async def mcp_rpc_endpoint(request: Request) -> Dict[str, Any]:
-        try:
-            body = await request.json()
-        except Exception as err:
-            raise HTTPException(status_code=400, detail=f"Invalid JSON body: {err}") from err
-        
-        return handle_mcp_rpc(body, registry)
-
-    # --- Legacy Tool Endpoints ---
+    # --- FastMCP Tool Endpoints ---
 
     @application.get("/real-sector/tools")
     def tool_definitions() -> list[dict[str, object]]:

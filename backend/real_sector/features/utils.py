@@ -1,7 +1,10 @@
+"""Statistical feature extraction utilities for macroeconomic time series."""
 from __future__ import annotations
 
 from typing import Optional
+import numpy as np
 import pandas as pd
+from scipy import stats
 
 
 def series_summary(
@@ -12,7 +15,7 @@ def series_summary(
     end_date: Optional[str] = None,
     aggregate: str = "mean"
 ) -> dict[str, float | str | None]:
-    """Return latest value, YoY change, period change, and trend direction for a selection."""
+    """Return latest value, YoY change, period change, rolling Z-score, and historical percentile ranking."""
     subset = frame.copy()
     if contains:
         subset = subset[subset["indicator_name"].str.contains(contains, case=False, regex=False, na=False)]
@@ -29,7 +32,9 @@ def series_summary(
             "period_change_pct": None,
             "year_change_pct": None,
             "three_period_avg": None,
-            "trend": None
+            "trend": None,
+            "z_score": None,
+            "percentile_rank": None
         }
 
     grouped = subset.groupby("date", as_index=False)["value"].agg(aggregate).sort_values("date")
@@ -40,7 +45,9 @@ def series_summary(
             "period_change_pct": None,
             "year_change_pct": None,
             "three_period_avg": None,
-            "trend": None
+            "trend": None,
+            "z_score": None,
+            "percentile_rank": None
         }
 
     latest = grouped.iloc[-1]
@@ -67,7 +74,7 @@ def series_summary(
     # 3-period moving average
     three_avg = round(float(grouped.tail(3)["value"].mean()), 2) if len(grouped) >= 3 else None
 
-    # Determine trend (accelerating, decelerating, or stable)
+    # Determine trend
     period_change = change(None if previous is None else float(previous.value))
     if period_change is not None:
         if period_change > 1.0:
@@ -79,13 +86,25 @@ def series_summary(
     else:
         trend = "stable"
 
+    # Statistical distribution (Z-score & Percentile rank over historical series)
+    vals = grouped["value"].dropna().values
+    if len(vals) >= 5 and np.std(vals) > 0:
+        latest_val = float(latest.value)
+        z_score = round(float((latest_val - np.mean(vals)) / np.std(vals)), 2)
+        pct_rank = round(float(stats.percentileofscore(vals, latest_val)), 1)
+    else:
+        z_score = None
+        pct_rank = None
+
     return {
-        "latest_date": latest.date.date().isoformat(),
+        "latest_date": str(latest.date)[:10],
         "latest_value": round(float(latest.value), 2),
         "period_change_pct": period_change,
         "year_change_pct": change(None if year_back is None else float(year_back.value)),
         "three_period_avg": three_avg,
-        "trend": trend
+        "trend": trend,
+        "z_score": z_score,
+        "percentile_rank": pct_rank
     }
 
 
@@ -96,7 +115,7 @@ def direct_growth_summary(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None
 ) -> dict[str, float | str | None]:
-    """Return latest source-supplied growth rate and its movement."""
+    """Return latest source-supplied growth rate with statistical percentile rankings."""
     result = series_summary(frame, contains, start_date=start_date, end_date=end_date)
     if result["latest_value"] is not None:
         result["latest_growth_pct"] = result.pop("latest_value")
