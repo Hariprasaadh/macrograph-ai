@@ -61,7 +61,7 @@ def decompose_node(state: OrchestratorState) -> Dict[str, Any]:
         sectors.append(SectorEnum.EXTERNAL.value)
     if any(w in query for w in ["nifty", "sensex", "vix", "market", "equity", "earnings", "flows"]):
         sectors.append(SectorEnum.CAPITAL_MARKETS.value)
-    if any(w in query for w in ["monsoon", "agriculture", "crop", "msp", "foodgrain", "rural"]):
+    if any(w in query for w in ["agriculture", "crop", "msp", "foodgrain", "rural"]):
         sectors.append(SectorEnum.AGRICULTURE_RURAL.value)
     if any(w in query for w in ["labour", "employment", "unemployment", "epfo", "wage"]):
         sectors.append(SectorEnum.LABOUR_EMPLOYMENT.value)

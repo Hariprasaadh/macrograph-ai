@@ -1,0 +1,9 @@
+RBI_URL="https://www.rbi.org.in/Scripts/BS_ViewWss.aspx"
+YAHOO_SYMBOL="INR=X"
+TRADE_URL="https://tradestat.commerce.gov.in/"
+FOREX_INDICATOR="in.macro.external.forex_reserves"
+EXCHANGE_INDICATOR="in.macro.external.usd_inr_exchange_rate"
+TRADE_INDICATOR="in.macro.external.merchandise_trade_deficit"
+CAD_INDICATOR="in.macro.external.current_account_deficit"
+IMPORTS_INDICATOR="in.macro.external.merchandise_imports"
+REQUEST_TIMEOUT=8
