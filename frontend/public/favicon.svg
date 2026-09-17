@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40">
+  <defs>
+    <linearGradient id="facet1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0284c7" />
+      <stop offset="100%" stop-color="#0f172a" />
+    </linearGradient>
+    <linearGradient id="facet2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#0284c7" />
+    </linearGradient>
+    <linearGradient id="facet3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0ea5e9" />
+      <stop offset="100%" stop-color="#0369a1" />
+    </linearGradient>
+  </defs>
+  <!-- Polyhedral geometric cube matching MacroGraph AI logo -->
+  <polygon points="20,4 34,12 20,20 6,12" fill="url(#facet2)" />
+  <polygon points="6,12 20,20 20,36 6,28" fill="url(#facet1)" />
+  <polygon points="20,20 34,12 34,28 20,36" fill="url(#facet3)" />
+  <line x1="20" y1="20" x2="20" y2="36" stroke="#0f172a" stroke-width="1.5" />
+  <line x1="20" y1="20" x2="6" y2="12" stroke="#0f172a" stroke-width="1.5" />
+  <line x1="20" y1="20" x2="34" y2="12" stroke="#0f172a" stroke-width="1.5" />
+</svg>

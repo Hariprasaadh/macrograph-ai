@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+.venv/
+env/
+venv/
+ENV/
+
+# Build & Bundler outputs
+dist/
+frontend/dist/
+build/
+.vite/
+
+# Python cache & artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Environment Variables & Secrets
+.env
+*.env
+!backend/.env.example
+
+# Local databases & analytical stores
+*.duckdb
+*.duckdb.wal
+macro_store.duckdb
+
+# Logs & Temporary files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS & Editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
