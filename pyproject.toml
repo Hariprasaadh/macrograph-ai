@@ -23,14 +23,26 @@ dependencies = [
     "networkx>=3.4.0",
     "scipy>=1.14.0",
     "scikit-learn>=1.5.0",
+    "statsmodels>=0.14.0",
     "sse-starlette>=2.1.0",
     "python-dotenv>=1.0.0",
     "tenacity>=9.0.0",
+    "pytest>=8.0.0",
 ]
 
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
+
+# The source packages live under backend/.  Explicit discovery prevents
+# setuptools from treating research assets such as base_papers/ as packages.
+[tool.setuptools]
+package-dir = {"" = "backend"}
+
+[tool.setuptools.packages.find]
+where = ["backend"]
+include = ["core*", "*_sector*"]
+namespaces = true
 
 [tool.pytest.ini_options]
 testpaths = ["backend/tests"]

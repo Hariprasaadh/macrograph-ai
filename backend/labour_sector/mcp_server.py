@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional
 from fastmcp import FastMCP
 from pydantic import BaseModel, Field
 
-from core.database.macro_store import macro_store
+from .clients.labour_data_client import LabourDataClient
 
 mcp_server = FastMCP(
     "labour_sector_mcp",
@@ -19,7 +19,4 @@ class LabourQueryInput(BaseModel):
 
 @mcp_server.tool(name="get_epfo_payroll_snapshot", description="Fetches monthly net EPFO payroll additions.")
 def get_epfo_payroll_snapshot(params: LabourQueryInput) -> Dict[str, Any]:
-    obs = macro_store.get_latest_canonical_observation("in.macro.labour.epfo_additions")
-    if obs:
-        return {"agent": "labour_sector", "status": "success", "observation": obs.model_dump()}
-    return {"agent": "labour_sector", "status": "error", "message": "EPFO observation unavailable."}
+    return LabourDataClient().get_epfo_payroll()

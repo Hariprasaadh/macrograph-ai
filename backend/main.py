@@ -24,11 +24,16 @@ from capital_market_sector.mcp_server import mcp_server as capital_mcp
 from prices_sector.mcp_server import mcp_server as prices_mcp
 from monetary_sector.mcp_server import mcp_server as monetary_mcp
 from labour_sector.mcp_server import mcp_server as labour_mcp
+from agriculture_sector.mcp_server import mcp_server as agriculture_mcp
+from external_sector.mcp_server import mcp_server as external_mcp
 
 # Sub-apps
 from real_sector.api.app import app as real_app
 from finance_sector.api.app import app as finance_app
 from capital_market_sector.api.app import app as capital_app
+from labour_sector.api.app import app as labour_app
+from agriculture_sector.api.app import app as agriculture_app
+from external_sector.api.app import app as external_app
 
 app = FastAPI(
     title="Macrograph AI — Indian Macroeconomic Intelligence Platform",
@@ -48,6 +53,9 @@ app.add_middleware(
 app.mount("/real-sector", real_app)
 app.mount("/finance-sector", finance_app)
 app.mount("/capital-markets", capital_app)
+app.mount("/labour-sector", labour_app)
+app.mount("/agriculture-sector", agriculture_app)
+app.mount("/external-sector", external_app)
 
 
 # -----------------------------------------------------------------------------
