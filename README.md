@@ -1,140 +1,246 @@
-# Macrograph AI — Multi-Agent Indian Macroeconomic Intelligence Platform
+# Macrograph-AI: Multi-Agent Indian Macroeconomic Intelligence Platform
 
-[![Python 3.12](https://img.shields.io/badge/Python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.115%2B-009688.svg)](https://fastapi.tiangolo.com)
-[![LangGraph](https://img.shields.io/badge/LangGraph-1.2%2B-orange.svg)](https://langchain-ai.github.io/langgraph/)
-[![DuckDB](https://img.shields.io/badge/DuckDB-1.1%2B-FFF000.svg)](https://duckdb.org)
-[![FastMCP](https://img.shields.io/badge/FastMCP-3.4%2B-green.svg)](https://github.com/jlowin/fastmcp)
-[![A2A Protocol](https://img.shields.io/badge/A2A%20Protocol-1.1%2B-purple.svg)](https://github.com/google-deepmind)
-[![Tests Passing](https://img.shields.io/badge/Tests-27%2F27%20Passing-brightgreen.svg)]()
-
-**Macrograph AI** is an academically rigorous, research-oriented Multi-Agent Macroeconomic Intelligence Platform specialized in the Indian economy. It bridges official statistical time-series (from MoSPI, RBI DBIE, SEBI, AMFI, and Ministry of Finance) with a persistent **5-Tier Causal Knowledge Graph**, standard **FastMCP** tool protocol servers, **A2A (Agent-to-Agent)** inter-agent message passing, and **LangGraph** multi-agent orchestration.
+Macrograph-AI is an academically rigorous, multi-agent macroeconomic intelligence platform specialized in the Indian economy. It decomposes India's macroeconomic landscape into **10 specialized sector agents** that reason collaboratively over the **A2A protocol** (agent-to-agent reasoning), retrieve verified empirical observations via **FastMCP servers** (agent-to-data), validate claims against an embedded **DuckDB** analytical store and **Qdrant** policy vector layer, and produce strictly cited, transmission-aware economic intelligence.
 
 ---
 
-## Key Differentiators & Principles
+## Core Architecture
 
-1. **Separation of Concerns & Hallucination Elimination**: Large Language Models (LLMs) are restricted to qualitative reasoning, query routing, and academic synthesis. All statistical metrics (Z-scores, rolling percentiles, growth rates, and impulse response shocks) are computed deterministically in Python and DuckDB.
-2. **5-Tier Causal Classification**: Replaces raw correlations with an explicit 5-tier causal taxonomy (`THEORY`, `STATISTICAL_ASSOCIATION`, `LAGGED_RELATIONSHIP`, `GRANGER_PREDICTIVE`, `STRUCTURAL_CAUSAL_MODEL`).
-3. **Cryptographic Provenance**: Every empirical data point carries a SHA-256 hash, official source authority citation, release timestamp, and revision status.
-4. **Resilient Dual-Tier LLM Architecture**: Operates on Groq Cloud using `llama-3.3-70b-versatile` for deep causal synthesis and `llama-3.1-8b-instant` for fast query routing, with automatic exponential retry and deterministic offline fallback.
+### 1. A2A vs FastMCP — Never Conflate
+- **A2A Protocol (Agent-to-Agent Reasoning):** Used strictly for peer coordination, subtask delegation, causal inquiries, and passing structured conclusions between sector agents.
+- **FastMCP (Agent-to-Data Retrieval):** Used strictly for fetching empirical data from external statistical APIs, DuckDB tables, and Qdrant policy vectors.
+- **Rule:** An agent must never fetch raw data from another agent. It fetches from its own FastMCP tools and communicates analytical findings with peers via A2A.
+
+```
++--------------------+                     +--------------------+
+| Prices Sector      | <====== A2A ======> | Monetary Sector    |
+| (Reasoning Agent)  |                     | (Reasoning Agent)  |
++--------------------+                     +--------------------+
+         |                                           |
+    FastMCP Tool                               FastMCP Tool
+         |                                           |
+         v                                           v
+  +--------------+                            +--------------+
+  |  MOSPI DB    |                            |  RBI DBIE    |
+  +--------------+                            +--------------+
+```
+
+### 2. Single Source of Truth Per Indicator
+Every macroeconomic indicator is owned exclusively by **one sector agent**. No agent may independently recompute or re-fetch an indicator owned by another sector.
+
+| Primary Indicator | Owner Agent | Subscribing Peer Agents via A2A |
+| :--- | :--- | :--- |
+| CPI, WPI, Food/Fuel/Core Inflation | `prices_sector` | Monetary, Agriculture, Fiscal |
+| Repo Rate, SDF, MSF, M1/M2/M3 Liquidity | `monetary_sector` | Finance, Capital Markets, Fiscal |
+| Crop Production, MSP, Mandi Prices | `agriculture_sector` | Prices, External |
+| Fiscal Deficit, GST Revenue, Union Capex | `fiscal_sector` | Monetary, External |
+| Bank Credit Growth, NPA Ratios, Deposit Rates | `finance_sector` | Monetary, Capital Markets |
+| NIFTY 50, FII/DII Flows, G-Sec Yields | `capital_market_sector` | External, Monetary |
+| Trade Balance, Forex Reserves, BoP, Remittances | `external_sector` | Monetary, Capital Markets |
+| GDP, GVA, National Accounts, IIP | `real_sector` | Monetary, Fiscal, Capital Markets |
+| PLFS Unemployment, LFPR, EPFO Additions | `labour_sector` | Real Sector, Fiscal |
+| Services GVA, IT/ITeS Exports, PMI Services | `services_sector` | Real Sector, External |
+
+### 3. Mandatory Attribution & Strict Citation Chain
+No economic statement may be returned without an explicit attribution chain:
+1. **Source Agent:** The domain authority agent owning the data point
+2. **MCP Tool / Source Authority:** The specific FastMCP tool, government publication, or survey cited
+3. **Specific Data Point:** The exact observation period, numerical value, and unit
 
 ---
 
 ## Architectural Flow
 
-```mermaid
-flowchart TD
-    Client([User / Research API Client]) --> Gateway[FastAPI Unified Gateway :8000]
-    
-    subgraph Orchestration [LangGraph Multi-Agent Orchestrator]
-        Gateway --> Decompose[1. Query Decomposition Node]
-        Decompose --> Dispatcher[2. Parallel A2A Dispatcher Node]
-        Dispatcher --> StateAggregation[3. State Aggregation & Fusion Node]
-        StateAggregation --> KGTraversal[4. Knowledge Graph Traversal Node]
-        KGTraversal --> CausalEngine[5. Causal Impulse Shock Simulation]
-        CausalEngine --> Synthesis[6. Dual-Tier Groq LLM Synthesis Node]
-    end
-    
-    subgraph A2ALayer [Dynamic A2A Agent Registry & Lifecycle]
-        Dispatcher -->|TaskRequest| Registry[Central A2A Agent Registry]
-        Registry --> RealExec[Real Sector Agent]
-        Registry --> FinExec[Finance Sector Agent]
-        Registry --> CapExec[Capital Markets Agent]
-    end
-    
-    subgraph MCPLayer [Standard FastMCP Tool Servers]
-        RealExec --> RealMCP[real_sector_mcp]
-        FinExec --> FinMCP[finance_sector_mcp]
-        CapExec --> CapMCP[capital_markets_mcp]
-        RealMCP --> DuckDBStore[(Embedded DuckDB macro_store.duckdb)]
-        FinMCP --> DuckDBStore
-        CapMCP --> DuckDBStore
-    end
-    
-    subgraph KnowledgeCore [Macroeconomic Knowledge Graph & SCM]
-        DuckDBStore --> NetworkXGraph[NetworkX Graph Engine / Neo4j]
-        NetworkXGraph --> SCMModel[Causal Impulse Response Simulator]
-        SCMModel --> KGTraversal
-    end
-    
-    Synthesis --> Output([Verified Macroeconomic Intelligence Report])
+```
+                           +-------------------------------------------------------------+
+                           |                         USER QUERY                          |
+                           +------------------------------+------------------------------+
+                                                          |
+                           +------------------------------v------------------------------+
+                           |                         ORCHESTRATOR                        |
+                           |  - Parses query, inspects sector AgentCards                 |
+                           |  - Decomposes into domain tasks, builds A2A execution graph |
+                           |  - Aggregates findings and generates strictly cited output  |
+                           +------------------------------+------------------------------+
+                                                          | A2A Protocol
+               +----------------+-------------+-----------+-----------+----------------+
+               |                |             |           |           |                |
+               v                v             v           v           v                v
+         +-----------+    +-----------+ +-----------+ +-----------+ +-----------+ +-----------+
+         |  PRICES   |    | MONETARY  | |  FISCAL   | | EXTERNAL  | |  CAPITAL  | |  FINANCE  |
+         |   AGENT   |    |   AGENT   | |   AGENT   | |   AGENT   | |  MARKETS  | |   AGENT   |
+         +-----+-----+    +-----+-----+ +-----+-----+ +-----+-----+ +-----+-----+ +-----+-----+
+               |                |             |           |           |                |
+         +-----+-----+          |       +-----+-----+     |     +-----+-----+          |
+         |   AGRI    |          |       |  LABOUR   |     |     | SERVICES  |          |
+         |   AGENT   |          |       |   AGENT   |     |     |   AGENT   |          |
+         +-----+-----+          |       +-----+-----+     |     +-----+-----+          |
+               |                |             |           |           |                |
+               +----------------+-------------+-----------+-----------+----------------+
+                                              |
+                                    FastMCP Tool Servers
+               +----------------+-------------+-----------+-----------+----------------+
+               v                v             v           v           v                v
+          +----------+    +----------+  +----------+ +----------+ +----------+  +----------+
+          |  MOSPI   |    | RBI DBIE |  | CGA/CBDT | | DGCI&S   | | NSE/SEBI |  |  Qdrant  |
+          |  DuckDB  |    | Bulletins|  |  Budget  | |  Customs | | Financial|  | Vector RAG
+          +----------+    +----------+  +----------+ +----------+ +----------+  +----------+
 ```
 
 ---
 
-## The 8 Macroeconomic Domain Sectors
+## The 10 Macroeconomic Domain Sectors
 
-| # | Sector | Canonical ID Prefix | Core Indicators | Source Authority |
+| # | Sector Agent | Package Directory | Core Analytical Scope | Primary FastMCP Sources |
 | :-: | :--- | :--- | :--- | :--- |
-| 1 | **Real Economy** | `in.macro.real.*` | Real GDP Growth, IIP Manufacturing, GFCF Investment | MoSPI |
-| 2 | **Prices & Inflation** | `in.macro.prices.*` | Headline CPI, Food CPI, WPI All Commodities, Brent Crude | MoSPI, OEA, EIA |
-| 3 | **Monetary & Banking**| `in.macro.monetary.*` | Policy Repo Rate, SDF, CRR, Bank Credit Growth | RBI DBIE |
-| 4 | **Fiscal Sector** | `in.macro.fiscal.*` | General Govt Debt-to-GDP, Central Capex, Gross Tax | Ministry of Finance, CGA |
-| 5 | **External Sector** | `in.macro.external.*` | Forex Reserves, USD/INR Exchange Rate, Trade Deficit | RBI, Ministry of Commerce |
-| 6 | **Capital Markets** | `in.macro.capmarkets.*` | NIFTY 50, India VIX Volatility Regime, Corporate EPS/PAT | NSE, SEBI, AMFI |
-| 7 | **Agriculture & Rural** | `in.macro.agri.*` | Foodgrain Production, Minimum Support Prices (MSP) | MoA&FW, IMD |
-| 8 | **Labour & Employment** | `in.macro.labour.*` | Net Monthly EPFO Payroll Additions, PLFS Unemployment | EPFO, MoSPI |
+| 1 | **Real Sector** | `backend/real_sector/` | Real GDP Growth, Gross Value Added (GVA), IIP Manufacturing | MoSPI, MoSPI NAS |
+| 2 | **Agriculture & Rural** | `backend/agriculture_sector/` | Foodgrain Production, Kharif/Rabi Sowing, MSP, Agmarknet Prices | Agmarknet, DAC&FW, IMD |
+| 3 | **Prices & Inflation** | `backend/prices_sector/` | Headline CPI, Food/Fuel CPI, WPI Commodities, Brent Pass-Through | MoSPI, OEA, EIA |
+| 4 | **Monetary & Liquidity** | `backend/monetary_sector/` | Policy Repo Rate, SDF/MSF Corridors, M3 Supply, RBI Stance | RBI DBIE, RBI Bulletins |
+| 5 | **Finance & Banking** | `backend/finance_sector/` | Non-Food Bank Credit, Gross NPA Ratios, Liquidity Coverage | RBI DBIE, SEBI |
+| 6 | **Capital Markets** | `backend/capital_market_sector/` | NIFTY 50, India VIX Regime, FII/DII Net Flows, G-Sec Yields | NSE/BSE APIs, SEBI, AMFI |
+| 7 | **Fiscal & Public Finance** | `backend/fiscal_sector/` | Fiscal Deficit, Gross Tax Revenue, Union Capex, Debt-to-GDP | CGA, CBDT, CBIC, Budget |
+| 8 | **External Sector** | `backend/external_sector/` | Forex Reserves, USD/INR Exchange Rate, Merchandise Trade Deficit | RBI BoP, DGCI&S |
+| 9 | **Labour & Employment** | `backend/labour_sector/` | Monthly Net EPFO Payrolls, PLFS Unemployment, Rural Wages | PLFS, EPFO, ILO |
+| 10 | **Services Sector** | `backend/services_sector/` | Services GVA, IT/BPO Exports, HSBC Services PMI Surveys | MoSPI, S&P Global PMI |
 
 ---
 
 ## 5-Tier Causal Classification Taxonomy
 
-Every transmission edge in the Knowledge Graph is categorized into one of five rigorous tiers:
+All cross-sector transmission hypotheses in the Knowledge Graph are evaluated through an explicit 5-tier causal ontology:
 
-1. **`THEORY`**: Qualitative macroeconomic theory supported by peer-reviewed academic literature.
-2. **`STATISTICAL_ASSOCIATION`**: Contemporaneous empirical correlation with verified $p < 0.05$.
-3. **`LAGGED_RELATIONSHIP`**: Empirical cross-correlation with verified transmission lag ($k \in [1, 12]$ months).
-4. **`GRANGER_PREDICTIVE`**: Directional predictive causality validated by bivariate $F$-tests on stationary time series.
-5. **`STRUCTURAL_CAUSAL_MODEL`**: Structural Causal Model / Directed Acyclic Graph (DAG) with documented assumptions and counterfactual identification conditions.
+1. **`THEORY`**: Grounded in peer-reviewed academic literature and central banking doctrine.
+2. **`STATISTICAL_ASSOCIATION`**: Contemporaneous empirical correlation (verified p < 0.05).
+3. **`LAGGED_RELATIONSHIP`**: Cross-correlation exhibiting verified transmission lag (1 to 12 months).
+4. **`GRANGER_PREDICTIVE`**: Directional predictive causality validated by bivariate F-tests on stationary series.
+5. **`STRUCTURAL_CAUSAL_MODEL`**: Directed Acyclic Graph (DAG) counterfactual identification meeting do-calculus criteria.
+
+---
+
+## Tech Stack
+
+| Component | Technology | Rationale |
+| :--- | :--- | :--- |
+| **Language & Runtime** | Python 3.12 | Modern type-hinting, performance, native async |
+| **Orchestration Graph** | LangGraph | Stateful multi-agent graph execution with typed state |
+| **Agent Reasoning & Typed IO** | PydanticAI | Type-safe tool use, `result_type` validation, `TestModel` CI |
+| **Agent Collaboration Layer** | A2A SDK (`a2a-sdk >= 1.1.0`) | AgentCard discovery, JSON-RPC 2.0, SSE streaming |
+| **Data Retrieval Tool Layer** | FastMCP (`fastmcp >= 3.4`) | Decorator-based MCP tool servers, typed parameter schemas |
+| **Web Gateway** | FastAPI + Uvicorn | High-performance ASGI gateway mounting all sub-apps |
+| **Analytical Database** | DuckDB (Embedded) | In-process columnar OLAP, SQL parameterization, zero latency |
+| **Policy Document Vector DB** | Qdrant | Vector embeddings of RBI circulars, Union Budget speeches |
+| **Knowledge Graph** | NetworkX & Neo4j | In-memory causal topology traversal and persistent graph |
+| **LLM Provider** | Groq Cloud | `llama-3.3-70b-versatile` (reasoning), `llama-3.1-8b-instant` (routing) |
+| **Frontend** | React 18, TypeScript, Vite, Tailwind CSS | Modular financial intelligence dashboard |
+
+---
+
+## Project Structure
+
+```text
+macrograph-ai/
+├── README.md                          # Project identity and architecture manual
+├── docs/
+│   └── high-level-overview.md         # Canonical platform architecture specifications
+├── pyproject.toml                     # Python 3.12 dependencies and configuration
+├── macro_store.duckdb                 # Embedded DuckDB canonical macroeconomic store
+│
+├── .agents/
+│   ├── AGENTS.md                      # Agent workspace rules and behavioral contract
+│   ├── agents/                        # Specialized subagents (planner.md, code-reviewer.md)
+│   ├── rules/                         # Core engineering and architecture enforcement rules
+│   └── skills/                        # Curated domain and tooling skills
+│       ├── a2a-protocol/              # A2A SDK guides, AgentCard templates, validator, mock server
+│       ├── pydantic-ai/               # PydanticAI references, Groq runners, sector agent templates
+│       ├── fastmcp/                   # FastMCP server construction and testing patterns
+│       ├── fastapi/                   # FastAPI route and SSE streaming best practices
+│       └── ui-ux-pro-max/             # UI/UX design intelligence and design systems
+│
+├── backend/
+│   ├── main.py                        # Unified FastAPI gateway mounting all sector sub-apps
+│   ├── demo_platform.py               # End-to-end platform demonstration script
+│   ├── core/                          # Shared platform infrastructure
+│   │   ├── config.py                  # Pydantic PlatformSettings (loaded via .env)
+│   │   ├── database/                  # DuckDB connection management and parameterized queries
+│   │   ├── knowledge_graph/           # NetworkX causal graph engine and ontology
+│   │   ├── econometrics/              # Causal impulse response simulation and Granger tests
+│   │   ├── protocols/a2a/             # A2A AgentCard, Central Registry, and Task lifecycle
+│   │   ├── protocols/mcp/             # FastMCP client utilities
+│   │   └── orchestrator/              # LangGraph multi-agent orchestration and state
+│   │
+│   ├── real_sector/                   # GDP, GVA, IIP (FastMCP + A2A + PydanticAI Agent)
+│   ├── agriculture_sector/            # Crops, Monsoon, MSP, Mandi Prices
+│   ├── prices_sector/                 # CPI, WPI, Core/Food/Fuel Inflation
+│   ├── monetary_sector/               # Repo rate, M3, Liquidity, Stance
+│   ├── finance_sector/                # Bank Credit, Gross NPA, Financial Stability
+│   ├── capital_market_sector/         # NIFTY, VIX, FII/DII, G-Sec
+│   ├── fiscal_sector/                 # Deficit, GST, Union Capex, Debt
+│   ├── external_sector/               # BoP, Forex Reserves, Trade Deficit
+│   ├── labour_sector/                 # EPFO, PLFS Unemployment, Wages
+│   ├── services_sector/               # Services GVA, IT Exports, PMI
+│   └── tests/                         # Pytest test suite (27/27 unit and integration tests)
+│
+└── frontend/                          # React + TypeScript + Vite + Tailwind CSS dashboard
+```
 
 ---
 
 ## Quickstart Guide
 
-### 1. Prerequisites & Virtual Environment
-Ensure you have Python 3.12+ installed. Activate the project virtual environment:
+### 1. Prerequisites
+Ensure Python 3.12+ and Node.js 18+ are installed.
 
 ```powershell
-# Windows PowerShell
+# Clone the repository
+git clone https://github.com/Hariprasaadh/macrograph-ai.git
+cd macrograph-ai
+
+# Activate virtual environment
 .venv\Scripts\activate
 ```
 
-### 2. Environment Configuration
-Create a `.env` file in the root or `backend/` directory:
+### 2. Configure Environment
+Create a `.env` file in `backend/` or repository root:
 
 ```env
-GROQ_API_KEY=your_groq_api_key_here
+GROQ_API_KEY=gsk_your_groq_api_key_here
 MODEL_PROVIDER=groq
 FAST_MODEL=llama-3.1-8b-instant
 REASONING_MODEL=llama-3.3-70b-versatile
-LLM_TEMPERATURE=0.1
 DATABASE_PATH=macro_store.duckdb
 ```
-*(Note: If no API key is provided, the platform automatically switches to deterministic offline synthesis without failing).*
+
+*(Note: If no API key is provided, the platform automatically utilizes deterministic offline fallback synthesis without failing).*
 
 ### 3. Run Automated Tests
-Execute the full test suite (27 unit and integration tests):
+Execute the full test suite:
 
 ```powershell
-.venv\Scripts\pytest backend/tests -v
+pytest backend/tests/ -v
 ```
 
 ### 4. Run the Platform Demo
-Run the end-to-end multi-agent orchestration demo:
+Execute the multi-agent orchestration demonstration:
 
 ```powershell
-.venv\Scripts\python backend/demo_platform.py
+python backend/demo_platform.py
 ```
 
 ### 5. Launch the FastAPI Gateway
 Start the backend server on `http://127.0.0.1:8000`:
 
 ```powershell
-.venv\Scripts\uvicorn main:app --app-dir backend --host 127.0.0.1 --port 8000 --reload
+uvicorn backend.main:app --reload --port 8000
 ```
+Interactive OpenAPI documentation will be accessible at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
 
-Interactive OpenAPI documentation will be available at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
+### 6. Launch Frontend Dashboard
+```powershell
+cd frontend
+npm install
+npm run dev
+```
 
 ---
 
@@ -146,13 +252,13 @@ Interactive OpenAPI documentation will be available at [http://127.0.0.1:8000/do
 {
   "query": "Assess the impact of rising global crude prices on Indian CPI inflation, RBI repo rate policy, and corporate earnings.",
   "scenario_shock": {
-    "name": "Global Brent Crude Oil Surge (+20 USD/barrel)",
+    "name": "Global Brent Crude Surge (+20 USD/bbl)",
     "variable": "in.macro.prices.brent_crude",
     "magnitude": 20.0
   }
 }
 ```
-**Response**: Includes verified observations, traversed causal paths, impulse response forecast, dynamic Mermaid diagram, and the synthesized research report.
+**Response:** Delivers verified observations, traversed transmission paths, impulse response projections, and the synthesized, cited intelligence report.
 
 ### 2. Causal Scenario Impulse Simulation
 `POST /api/v1/simulate`
@@ -167,81 +273,25 @@ Interactive OpenAPI documentation will be available at [http://127.0.0.1:8000/do
 
 ### 3. Knowledge Graph Transmission Path
 `GET /api/v1/kg/path?source_id=in.macro.prices.brent_crude&target_id=in.macro.real.gdp_growth`
-- Returns: Shortest transmission path, number of hops, cumulative transmission lag (months), and individual edge relationships.
+- Returns: Shortest transmission path, hop count, cumulative transmission lag (months), and edge causal classifications.
 
 ### 4. Downstream Shock Reachability
 `GET /api/v1/kg/impacts?shock_id=in.macro.prices.brent_crude`
-- Returns: All reachable macroeconomic indicators affected downstream by the shock.
+- Returns: All reachable macroeconomic indicators affected downstream by the specified shock.
 
 ### 5. A2A Agent Registry
 `GET /a2a/registry`
-- Returns: All discoverable `AgentCard` specifications, registered skills, and input/output schemas.
+- Returns: All discoverable `AgentCard` specifications, sector capabilities, and JSON-RPC task endpoints.
 
 ---
 
-## Project Structure
+## Agent Engineering Rules
 
-```text
-macrograph-ai/
-├── AGENTS.md                   # Multi-agent architecture & agent specifications
-├── MEMORY.md                   # System memory, design decisions & data dictionary
-├── IMPLEMENTATION_PLAN.md      # Comprehensive implementation plan & roadmap tracker
-├── README.md                   # Root project documentation
-├── pyproject.toml              # Project dependencies & build configuration
-├── macro_store.duckdb          # Embedded DuckDB canonical macroeconomic store
-├── .agents/skills/             # Reusable Antigravity agent skills (13 domain skills)
-├── backend/
-│   ├── main.py                 # Unified FastAPI gateway & route definitions
-│   ├── demo_platform.py        # End-to-end platform demonstration script
-│   ├── core/
-│   │   ├── config.py           # Pydantic platform settings
-│   │   ├── data/schema.py      # Canonical data models & enums
-│   │   ├── database/           # Embedded DuckDB store implementation
-│   │   ├── knowledge_graph/    # NetworkX & Neo4j graph engines & ontology
-│   │   ├── econometrics/       # Causal impulse response simulation & Granger test
-│   │   ├── protocols/a2a/      # A2A Agent Card, Registry, Task lifecycle & SSE
-│   │   ├── protocols/mcp/      # Standard FastMCP client
-│   │   └── orchestrator/       # LangGraph multi-agent orchestration & Groq client
-│   ├── real_sector/            # Real Sector pipeline, FastMCP server, & A2A executor
-│   ├── finance_sector/         # Finance Sector data client, FastMCP, & A2A executor
-│   ├── capital_market_sector/  # Capital Markets client, FastMCP, & A2A executor
-│   ├── prices_sector/          # Prices & Inflation FastMCP server
-│   ├── monetary_sector/        # Monetary & Banking FastMCP server
-│   ├── labour_sector/          # Labour & Employment FastMCP server
-│   └── tests/                  # 27 unit & integration tests
-├── frontend/                   # React + Vite web dashboard (upcoming)
-└── docs/                       # University project design documents & proposals
-```
-
----
-
-## Reusable Agent Skills
-
-The platform provides 13 modular, production-grade skills located natively in `.agents/skills/`:
-1. `macro-orchestrator-agent`: Goal decomposition, parallel A2A dispatching, and Groq synthesis.
-2. `real-sector-agent`: Quarterly GDP, IIP industrial production, and GFCF investment.
-3. `prices-inflation-agent`: Headline CPI, food inflation, WPI, and Brent crude pass-through.
-4. `monetary-banking-agent`: RBI repo rate, corridor rates, and bank credit growth.
-5. `capital-markets-agent`: NIFTY 50, India VIX volatility regimes, and DII/FII flows.
-6. `finance-sector-agent`: Macro-financial stability, banking liquidity, and forex buffers.
-7. `fiscal-sector-agent`: Debt-to-GDP sustainability, central capex, and tax buoyancy.
-8. `external-sector-agent`: Forex reserves, USD/INR exchange rate, and trade deficit.
-9. `agriculture-rural-agent`: Foodgrain production, MSP trends, and monsoon departure.
-10. `labour-employment-agent`: Monthly net EPFO payroll additions and PLFS unemployment.
-11. `causal-econometrics-agent`: Structural Causal Models, 5-tier taxonomy, and shock simulations.
-12. `knowledge-graph-agent`: Shortest transmission paths, cumulative lag, and Mermaid flowcharts.
-13. `canonical-data-ingestion`: DuckDB ingestion standards, validation, and SHA-256 provenance hashing.
-
----
-
-## Roadmap & Upcoming Milestones
-
-- **Phase 1 (Complete)**: Canonical Data Layer, DuckDB Store, NetworkX Graph, Causal Simulation, A2A Protocol, 6 FastMCP servers, LangGraph Orchestrator, 27/27 Tests Passing.
-- **Phase 2 (Complete)**: Comprehensive AGENTS.md, MEMORY.md, Reusable Skills (13 skills), and Implementation Tracker.
-- **Phase 3 (Next)**: Full decoupling of all 8 domain A2A executors and dedicated sub-application routers.
-- **Phase 4 (Upcoming)**: Policy Document Vector RAG using Qdrant (semantic indexing of RBI circulars, Union Budget speeches, and Economic Survey chapters).
-- **Phase 5 (Upcoming)**: Interactive Web Dashboard in `frontend/` using React, Vite, Plotly, and Cytoscape.js.
-- **Phase 6 (Production)**: Multi-container orchestration using Docker Compose.
+1. **Strict Citation is Mandatory:** Every economic claim must cite the authoritative source agent, the FastMCP tool/source, and the specific data point.
+2. **DuckDB Query Safety:** All SQL queries must be parameterized (`?`). F-strings and string concatenations in SQL are strictly prohibited.
+3. **Async First:** All FastAPI endpoints, FastMCP tools, and LangGraph nodes performing I/O must be `async def`.
+4. **Resilience Retries:** All external calls (Groq LLM, government APIs) must be wrapped with Tenacity exponential retries.
+5. **No Emojis in Code:** Comments, docstrings, and log messages must be professional and emoji-free.
 
 ---
 
