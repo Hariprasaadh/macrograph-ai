@@ -1,6 +1,6 @@
 # Macrograph-AI: Multi-Agent Indian Macroeconomic Intelligence Platform
 
-Macrograph-AI is an academically rigorous, multi-agent macroeconomic intelligence platform specialized in the Indian economy. It decomposes India's macroeconomic landscape into **10 specialized sector agents** that reason collaboratively over the **A2A protocol** (agent-to-agent reasoning), retrieve verified empirical observations via **FastMCP servers** (agent-to-data), validate claims against an embedded **DuckDB** analytical store and **Qdrant** policy vector layer, and produce strictly cited, transmission-aware economic intelligence.
+Macrograph-AI is an academically rigorous, multi-agent macroeconomic intelligence platform specialized in the Indian economy. It decomposes India's macroeconomic landscape into **10 specialized sector agents** that reason collaboratively over the **A2A protocol** (agent-to-agent reasoning), retrieve verified empirical observations via **FastMCP servers** (agent-to-data), validate claims against an embedded **DuckDB** analytical store and **Qdrant** policy vector layer, and produce strictly cited macroeconomic intelligence.
 
 ---
 
@@ -106,18 +106,6 @@ No economic statement may be returned without an explicit attribution chain:
 
 ---
 
-## 5-Tier Causal Classification Taxonomy
-
-All cross-sector transmission hypotheses in the Knowledge Graph are evaluated through an explicit 5-tier causal ontology:
-
-1. **`THEORY`**: Grounded in peer-reviewed academic literature and central banking doctrine.
-2. **`STATISTICAL_ASSOCIATION`**: Contemporaneous empirical correlation (verified p < 0.05).
-3. **`LAGGED_RELATIONSHIP`**: Cross-correlation exhibiting verified transmission lag (1 to 12 months).
-4. **`GRANGER_PREDICTIVE`**: Directional predictive causality validated by bivariate F-tests on stationary series.
-5. **`STRUCTURAL_CAUSAL_MODEL`**: Directed Acyclic Graph (DAG) counterfactual identification meeting do-calculus criteria.
-
----
-
 ## Tech Stack
 
 | Component | Technology | Rationale |
@@ -130,7 +118,6 @@ All cross-sector transmission hypotheses in the Knowledge Graph are evaluated th
 | **Web Gateway** | FastAPI + Uvicorn | High-performance ASGI gateway mounting all sub-apps |
 | **Analytical Database** | DuckDB (Embedded) | In-process columnar OLAP, SQL parameterization, zero latency |
 | **Policy Document Vector DB** | Qdrant | Vector embeddings of RBI circulars, Union Budget speeches |
-| **Knowledge Graph** | NetworkX & Neo4j | In-memory causal topology traversal and persistent graph |
 | **LLM Provider** | Groq Cloud | `llama-3.3-70b-versatile` (reasoning), `llama-3.1-8b-instant` (routing) |
 | **Frontend** | React 18, TypeScript, Vite, Tailwind CSS | Modular financial intelligence dashboard |
 
@@ -163,8 +150,6 @@ macrograph-ai/
 │   ├── core/                          # Shared platform infrastructure
 │   │   ├── config.py                  # Pydantic PlatformSettings (loaded via .env)
 │   │   ├── database/                  # DuckDB connection management and parameterized queries
-│   │   ├── knowledge_graph/           # NetworkX causal graph engine and ontology
-│   │   ├── econometrics/              # Causal impulse response simulation and Granger tests
 │   │   ├── protocols/a2a/             # A2A AgentCard, Central Registry, and Task lifecycle
 │   │   ├── protocols/mcp/             # FastMCP client utilities
 │   │   └── orchestrator/              # LangGraph multi-agent orchestration and state
@@ -250,36 +235,12 @@ npm run dev
 `POST /api/v1/analyze`
 ```json
 {
-  "query": "Assess the impact of rising global crude prices on Indian CPI inflation, RBI repo rate policy, and corporate earnings.",
-  "scenario_shock": {
-    "name": "Global Brent Crude Surge (+20 USD/bbl)",
-    "variable": "in.macro.prices.brent_crude",
-    "magnitude": 20.0
-  }
+  "query": "Assess the impact of rising global crude prices on Indian CPI inflation, RBI repo rate policy, and corporate earnings."
 }
 ```
-**Response:** Delivers verified observations, traversed transmission paths, impulse response projections, and the synthesized, cited intelligence report.
+**Response:** Delivers verified empirical observations, cross-sector reasoning from authoritative sector agents, and the synthesized, strictly cited intelligence report.
 
-### 2. Causal Scenario Impulse Simulation
-`POST /api/v1/simulate`
-```json
-{
-  "scenario_name": "Monetary Policy Tightening (+50 bps)",
-  "shock_variable": "in.macro.monetary.repo_rate",
-  "shock_magnitude": 0.50,
-  "horizon_periods": 4
-}
-```
-
-### 3. Knowledge Graph Transmission Path
-`GET /api/v1/kg/path?source_id=in.macro.prices.brent_crude&target_id=in.macro.real.gdp_growth`
-- Returns: Shortest transmission path, hop count, cumulative transmission lag (months), and edge causal classifications.
-
-### 4. Downstream Shock Reachability
-`GET /api/v1/kg/impacts?shock_id=in.macro.prices.brent_crude`
-- Returns: All reachable macroeconomic indicators affected downstream by the specified shock.
-
-### 5. A2A Agent Registry
+### 2. A2A Agent Registry
 `GET /a2a/registry`
 - Returns: All discoverable `AgentCard` specifications, sector capabilities, and JSON-RPC task endpoints.
 
