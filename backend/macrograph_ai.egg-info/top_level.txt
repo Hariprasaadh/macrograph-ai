@@ -1,9 +1,0 @@
-agriculture_sector
-capital_market_sector
-core
-external_sector
-finance_sector
-labour_sector
-monetary_sector
-prices_sector
-real_sector

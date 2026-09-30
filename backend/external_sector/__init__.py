@@ -1,1 +1,2 @@
-from .agents.executor import ExternalSectorAgentExecutor
+"""External Sector package — Forex reserves, BoP, trade balance, and remittances."""
+from __future__ import annotations
