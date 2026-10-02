@@ -1,7 +1,6 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-// https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
   server: {
@@ -11,14 +10,18 @@ export default defineConfig({
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
-      '/health': {
+      '/finance-sector': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/real-sector': {
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
       '/a2a': {
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
-      }
-    }
-  }
+      },
+    },
+  },
 });
