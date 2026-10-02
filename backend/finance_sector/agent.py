@@ -3,7 +3,7 @@
 This node:
   1. Calls its own FastMCP tools (via direct Python import — within same sector).
   2. Consumes peer data from A2A (Repo rate, CPI) — never fetches those independently.
-  3. Uses FS_KEY (Groq) to reason over the fetched data.
+  3. Uses FIN_FIS_KEY (Groq) to reason over the fetched data.
   4. Returns structured findings with mandatory citation chains.
 
 Rules:
@@ -82,7 +82,7 @@ def create_pydantic_ai_agent(model: Any = None):
             system_prompt=_SYSTEM_PROMPT,
         )
 
-    api_key = finance_settings.FS_KEY or os.getenv("GROQ_API_KEY", "dummy-init-key")
+    api_key = finance_settings.FIN_FIS_KEY or os.getenv("GROQ_API_KEY", "dummy-init-key")
     try:
         from pydantic_ai.models.groq import GroqModel
         from pydantic_ai.providers.groq import GroqProvider
@@ -106,9 +106,9 @@ def get_groq_client() -> AsyncGroq:
     """Return a shared singleton AsyncGroq client."""
     global _groq_client
     if _groq_client is None:
-        if not finance_settings.FS_KEY:
-            raise ValueError("FS_KEY is not configured in environment or finance_settings.")
-        _groq_client = AsyncGroq(api_key=finance_settings.FS_KEY)
+        if not finance_settings.FIN_FIS_KEY:
+            raise ValueError("FIN_FIS_KEY is not configured in environment or finance_settings.")
+        _groq_client = AsyncGroq(api_key=finance_settings.FIN_FIS_KEY)
     return _groq_client
 
 
