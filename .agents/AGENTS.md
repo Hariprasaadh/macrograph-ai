@@ -37,13 +37,17 @@ Every macroeconomic indicator has exactly **one owner agent**. If the Prices Age
 | NIFTY, FII/DII flows, G-Sec yields | `capital_market_sector` |
 | NPA, Credit growth, Bank rates | `finance_sector` |
 
-### Strict Citation is Mandatory
-Every agent response, orchestrator synthesis, and API output that makes an economic claim **must** include:
-1. The **source agent** that owns the data
-2. The **MCP tool or external source** used to retrieve it
-3. The **specific data point, value, or document** cited
+### No Source, No Answer — Strict Citation & Anti-Hallucination Policy (NON-NEGOTIABLE)
 
-No economic claim may be output without this attribution chain.
+**No Source, No Answer:** Do not generate any financial metric, percentage, rate, or trend without explicitly stating its source.
+
+- **Zero Hallucination / No Hardcoding:** Never hallucinate, estimate, or hardcode random/mock numbers as factual data. If an official data point cannot be retrieved from an authorized source (e.g. RBI DBIE, MOSPI) or verified canonical store, the agent **must** explicitly return a structured unavailable/missing status. It must **never** invent plausible-sounding values.
+- Every agent response, orchestrator synthesis, and API output that makes an economic claim **must** include:
+  1. The **source agent** that owns the data
+  2. The **MCP tool or official external source** used to retrieve it (including table/document reference)
+  3. The **specific data point, value, and observation period** cited
+
+No economic claim may be output without this verified attribution chain.
 
 ---
 

@@ -9,11 +9,22 @@ A domain-specific sector module for Indian capital markets intelligence with a c
 - A2A agent card for cross-agent coordination
 
 ## Sub-domains
-1. Equity Market Indices (NIFTY 50, SENSEX)
-2. Market Volatility Index (India VIX)
-3. Corporate Earnings & EPS
-4. Primary Market Activity (IPOs & Debt Issuances)
-5. Mutual Fund Flows & Domestic Institutional Activity
+1. Equity Market Indices (NIFTY 50 `^NSEI`, SENSEX `^BSESN`)
+2. Market Volatility Index (India VIX `^INDIAVIX`)
+3. Corporate Earnings & EPS (NIFTY 50 TTM EPS, PAT Growth)
+4. Primary Market Activity (IPO Mobilization & Debt Issuances via SEBI)
+5. Mutual Fund Flows & Domestic Institutional Activity (AMFI / SEBI DII Net Purchases)
+
+## Data Sources & Yahoo Finance Integration
+All empirical equity and market volatility indicators are retrieved through live financial feeds:
+- **Yahoo Finance MCP / `yfinance` Client:**
+  - `^NSEI`: NIFTY 50 index live prices and historical series
+  - `^BSESN`: BSE SENSEX index live prices and historical series
+  - `^INDIAVIX`: India VIX real-time volatility index
+  - `INR=X`: USD/INR live spot exchange rate
+- **SEBI & AMFI Canonical Stores:**
+  - IPO Mobilization (Primary Market)
+  - Equity Net Inflows & DII Net Purchases (Mutual Fund Flows)
 
 ## Quick Start
 

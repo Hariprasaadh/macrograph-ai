@@ -1,6 +1,2 @@
-"""Finance Sector intelligence module for Macrograph AI."""
-
-from .agents.executor import FinanceSectorAgentExecutor
-from .clients.finance_data_client import FinanceDataClient
-
-__all__ = ["FinanceDataClient", "FinanceSectorAgentExecutor"]
+"""Finance & Banking Sector package for Macrograph AI."""
+from __future__ import annotations

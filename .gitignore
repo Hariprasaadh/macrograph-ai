@@ -49,3 +49,9 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+
+
+*.egg
+*.egg-info/
+.eggs/
+develop-eggs/

@@ -14,6 +14,11 @@ These rules apply to every agent and AI coding assistant working in this reposit
 - **A2A is for agent-to-agent reasoning. FastMCP is for agent-to-data retrieval.** These are two separate, non-interchangeable layers. Never conflate them. All MCP servers in this project are implemented with the `fastmcp` package (`FastMCP` class). No other MCP implementation is permitted.
 - **Each macroeconomic indicator has exactly one owner agent.** No agent may recompute or re-fetch a data point that belongs to another agent's domain. It must request that data via A2A.
 - **No inter-sector imports.** A sector package must never directly import from another sector package (e.g., `from prices_sector.models import ...` inside `monetary_sector/`). Cross-sector communication is via A2A only.
+- **No Source, No Answer (Strict Anti-Hallucination Policy — CRITICAL):**
+  - **Do not generate any financial metric, percentage, rate, or trend without explicitly stating its source.**
+  - **Never hallucinate or hardcode random/mock values.** Plausible-sounding guesses or hardcoded dummy numbers are strictly forbidden in production and analytical workflows.
+  - If a metric cannot be fetched via an authorized MCP tool or verified canonical store, the agent must return an explicit `status: "unavailable"` error rather than inventing numbers.
+  - Every economic statement must provide an attribution chain: `Source Agent` -> `MCP Tool / Official RBI/MoSPI Table` -> `Exact Data Point & Period`.
 
 ---
 

@@ -27,7 +27,11 @@ dependencies = [
     "sse-starlette>=2.1.0",
     "python-dotenv>=1.0.0",
     "tenacity>=9.0.0",
+    "httpx>=0.28.0",
+    "pydantic-settings>=2.6.0",
+    "groq>=0.37.0",
     "pytest>=8.0.0",
+    "pytest-asyncio>=1.4.0",
 ]
 
 [build-system]
@@ -45,6 +49,6 @@ include = ["core*", "*_sector*"]
 namespaces = true
 
 [tool.pytest.ini_options]
-testpaths = ["backend/tests"]
+testpaths = ["backend/tests", "backend/finance_sector/tests"]
 pythonpath = ["backend"]
-
+asyncio_mode = "auto"

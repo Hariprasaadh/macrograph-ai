@@ -32,9 +32,24 @@ class ModelAgnosticLLMClient:
                     timeout=settings.LLM_TIMEOUT,
                     max_retries=1
                 )
-            except Exception as e:
-                logger.warning(f"Could not initialize ChatGroq: {e}")
-                return None
+            except Exception:
+                try:
+                    from groq import Groq
+                    class _GroqWrapper:
+                        def __init__(self, key: str, model: str, temp: float):
+                            self.client = Groq(api_key=key)
+                            self.model = model
+                            self.temp = temp
+                        def invoke(self, messages: list):
+                            formatted = [{"role": r if r != "human" else "user", "content": c} for r, c in messages]
+                            res = self.client.chat.completions.create(model=self.model, messages=formatted, temperature=self.temp)
+                            class _Resp:
+                                content = res.choices[0].message.content or ""
+                            return _Resp()
+                    return _GroqWrapper(settings.GROQ_API_KEY, model_name, self.temperature)
+                except Exception as e2:
+                    logger.warning(f"Could not initialize Groq wrapper: {e2}")
+                    return None
         elif self.provider == "openai" and settings.OPENAI_API_KEY:
             try:
                 from langchain_openai import ChatOpenAI

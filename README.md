@@ -41,11 +41,14 @@ Every macroeconomic indicator is owned exclusively by **one sector agent**. No a
 | PLFS Unemployment, LFPR, EPFO Additions | `labour_sector` | Real Sector, Fiscal |
 | Services GVA, IT/ITeS Exports, PMI Services | `services_sector` | Real Sector, External |
 
-### 3. Mandatory Attribution & Strict Citation Chain
-No economic statement may be returned without an explicit attribution chain:
-1. **Source Agent:** The domain authority agent owning the data point
-2. **MCP Tool / Source Authority:** The specific FastMCP tool, government publication, or survey cited
-3. **Specific Data Point:** The exact observation period, numerical value, and unit
+### 3. No Source, No Answer — Strict Citation & Anti-Hallucination Policy
+**No Source, No Answer:** Do not generate any financial metric, percentage, rate, or trend without explicitly stating its source.
+
+- **Zero Hallucination / No Hardcoding:** Never hallucinate, estimate, or hardcode random/mock values as factual data. If a data point cannot be retrieved from an authorized source or the verified canonical store, the agent must return a structured unavailable state. Fabricating numbers is strictly prohibited.
+- **Mandatory Attribution Chain:** Every economic statement must provide:
+  1. **Source Agent:** The domain authority agent owning the data point
+  2. **MCP Tool / Source Authority:** The specific FastMCP tool, government publication (e.g. RBI DBIE, MOSPI), and table cited
+  3. **Specific Data Point:** The exact observation period, numerical value, and unit
 
 ---
 
@@ -93,16 +96,16 @@ No economic statement may be returned without an explicit attribution chain:
 
 | # | Sector Agent | Package Directory | Core Analytical Scope | Primary FastMCP Sources |
 | :-: | :--- | :--- | :--- | :--- |
-| 1 | **Real Sector** | `backend/real_sector/` | Real GDP Growth, Gross Value Added (GVA), IIP Manufacturing | MoSPI, MoSPI NAS |
+| 1 | **Real Sector** | `backend/real_sector/` | Real GDP Growth, Gross Value Added (GVA), IIP Manufacturing | MoSPI e-Sankhyiki FastMCP (`https://mcp.mospi.gov.in/` - NAS, IIP) |
 | 2 | **Agriculture & Rural** | `backend/agriculture_sector/` | Foodgrain Production, Kharif/Rabi Sowing, MSP, Agmarknet Prices | Agmarknet, DAC&FW, IMD |
-| 3 | **Prices & Inflation** | `backend/prices_sector/` | Headline CPI, Food/Fuel CPI, WPI Commodities, Brent Pass-Through | MoSPI, OEA, EIA |
-| 4 | **Monetary & Liquidity** | `backend/monetary_sector/` | Policy Repo Rate, SDF/MSF Corridors, M3 Supply, RBI Stance | RBI DBIE, RBI Bulletins |
-| 5 | **Finance & Banking** | `backend/finance_sector/` | Non-Food Bank Credit, Gross NPA Ratios, Liquidity Coverage | RBI DBIE, SEBI |
-| 6 | **Capital Markets** | `backend/capital_market_sector/` | NIFTY 50, India VIX Regime, FII/DII Net Flows, G-Sec Yields | NSE/BSE APIs, SEBI, AMFI |
+| 3 | **Prices & Inflation** | `backend/prices_sector/` | Headline CPI, Food/Fuel CPI, Subgroups (Health/Housing), WPI | MoSPI e-Sankhyiki FastMCP (`https://mcp.mospi.gov.in/` - CPI, WPI) |
+| 4 | **Monetary & Liquidity** | `backend/monetary_sector/` | Policy Repo Rate, SDF/MSF Corridors, M3 Supply, RBI Stance | RBI DBIE, RBI Monthly Bulletins |
+| 5 | **Finance & Banking** | `backend/finance_sector/` | Non-Food Bank Credit, Gross NPA Ratios, Lending Rates (WALR/MCLR), CD Ratio | RBI DBIE Tables (`r539`, `r330`, `r531`, `r689`) & FSR |
+| 6 | **Capital Markets** | `backend/capital_market_sector/` | NIFTY 50, India VIX Regime, FII/DII Net Flows, USD/INR, Earnings | Yahoo Finance MCP / `yfinance` (`^NSEI`, `^INDIAVIX`, `INR=X`), SEBI |
 | 7 | **Fiscal & Public Finance** | `backend/fiscal_sector/` | Fiscal Deficit, Gross Tax Revenue, Union Capex, Debt-to-GDP | CGA, CBDT, CBIC, Budget |
 | 8 | **External Sector** | `backend/external_sector/` | Forex Reserves, USD/INR Exchange Rate, Merchandise Trade Deficit | RBI BoP, DGCI&S |
-| 9 | **Labour & Employment** | `backend/labour_sector/` | Monthly Net EPFO Payrolls, PLFS Unemployment, Rural Wages | PLFS, EPFO, ILO |
-| 10 | **Services Sector** | `backend/services_sector/` | Services GVA, IT/BPO Exports, HSBC Services PMI Surveys | MoSPI, S&P Global PMI |
+| 9 | **Labour & Employment** | `backend/labour_sector/` | Monthly Net EPFO Payrolls, PLFS Unemployment, Rural Wages | MoSPI PLFS FastMCP, EPFO, ILO |
+| 10 | **Services Sector** | `backend/services_sector/` | Services GVA, IT/BPO Exports, HSBC Services PMI Surveys | MoSPI e-Sankhyiki FastMCP, S&P Global PMI |
 
 ---
 

@@ -1,22 +1,6 @@
-from .executor import FinanceSectorAgentExecutor
-from .finance_agent import (
-    CPIInflationAgent,
-    DebtToGDPAgent,
-    ForexReservesAgent,
-    GDPGrowthAgent,
-    RepoRateAgent,
-)
-from .response_models import FinanceSectorResponse
-from .tools import FinanceToolInput, FinanceToolRegistry
+"""Finance sector agents package."""
+from __future__ import annotations
 
-__all__ = [
-    "CPIInflationAgent",
-    "DebtToGDPAgent",
-    "FinanceSectorAgentExecutor",
-    "FinanceSectorResponse",
-    "FinanceToolInput",
-    "FinanceToolRegistry",
-    "ForexReservesAgent",
-    "GDPGrowthAgent",
-    "RepoRateAgent",
-]
+from finance_sector.executor import FinanceSectorAgentExecutor
+
+__all__ = ["FinanceSectorAgentExecutor"]
