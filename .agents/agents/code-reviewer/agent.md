@@ -111,7 +111,7 @@ async def get_user_by_id(db: DuckDBPyConnection, user_id: str) -> User | None:
 > **"Check whether failures are handled correctly."**
 
 - **No Swallowed Exceptions**: Strictly flag `except: pass`, empty `catch (e) {}` blocks, or error logging that fails to propagate or appropriately handle the error.
-- **Graceful Degradation**: External API calls, network requests, database queries, and LLM calls must have timeouts, retry mechanisms with exponential backoff (e.g., `tenacity`), and fallback strategies.
+- **Graceful Degradation**: External API calls, network requests, database queries, and LLM calls must have timeouts, retry mechanisms with exponential backoff (e.g., `tenacity`) limited to transient failures on operations that are idempotent or protected by an idempotency key, and fallback strategies that preserve the operation’s contract.
 - **Atomic Operations & State Consistency**: Check whether partial failure leaves the database, file system, or in-memory state corrupted or in an inconsistent state. Ensure transactions and rollbacks are used where mutations occur.
 - **Resource Cleanup**: Ensure all database connections, file handles, network sessions, thread pools, and locks are strictly enclosed in context managers (`with`, `async with`, `try...finally`).
 - **User-Facing Error Boundaries**: APIs must return structured, sanitised error responses with proper HTTP status codes. Frontend applications must have Error Boundaries to prevent total app crashes.
@@ -230,7 +230,7 @@ Do not waste developer time with noise. Skip the following unless there is concr
 
 For each identified issue, use this exact structure:
 
-```markdown
+````markdown
 ### [SEVERITY] [CATEGORY/PRINCIPLE] Issue Title
 - **File & Line**: `path/to/file.ext:LINE_NUMBER`
 - **Principle Violated**: (DRY | KISS | YAGNI | Dead Code | Failure Handling | Testing | Security | Performance)
@@ -244,7 +244,7 @@ For each identified issue, use this exact structure:
 # GOOD (Proposed solution)
 ...
 ```
-```
+````
 
 ### Final Summary Table & Verdict
 

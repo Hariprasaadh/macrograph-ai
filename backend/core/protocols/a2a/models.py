@@ -12,7 +12,7 @@ import json
 from typing import Any, Dict, List, Optional, Union
 import uuid
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class TaskState(str, Enum):
@@ -128,6 +128,7 @@ class TaskStatusUpdateEvent(BaseModel):
     status: TaskState
     message: Optional[str] = None
     progress: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
     timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
@@ -141,5 +142,14 @@ class TaskArtifactUpdateEvent(BaseModel):
 class RequestContext(BaseModel):
     """Execution context passed to an AgentExecutor."""
     task_id: str
-    request: TaskRequest
+    request: Optional[TaskRequest] = None
+    query: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def ensure_request_and_query(self) -> RequestContext:
+        if self.request is None and self.query is not None:
+            self.request = TaskRequest(task_id=self.task_id, query=self.query)
+        elif self.request is not None and self.query is None:
+            self.query = self.request.query
+        return self

@@ -106,6 +106,8 @@ def get_groq_client() -> AsyncGroq:
     """Return a shared singleton AsyncGroq client."""
     global _groq_client
     if _groq_client is None:
+        if not finance_settings.FS_KEY:
+            raise ValueError("FS_KEY is not configured in environment or finance_settings.")
         _groq_client = AsyncGroq(api_key=finance_settings.FS_KEY)
     return _groq_client
 
@@ -188,6 +190,14 @@ async def finance_agent_node(state: dict[str, Any]) -> dict[str, Any]:
             out[f] = getattr(r, f, None)
         return out
 
+    # If repo rate is available from monetary_sector, populate rates_records and derive spread
+    if repo_rate is not None and rates_records:
+        for r in rates_records:
+            if getattr(r, "repo_rate_pct", None) is None:
+                r.repo_rate_pct = repo_rate
+            if getattr(r, "lending_spread_over_repo_pct", None) is None and getattr(r, "walr_fresh_pct", None) is not None:
+                r.lending_spread_over_repo_pct = round(r.walr_fresh_pct - repo_rate, 4)
+
     latest_credit = credit_records[-1] if credit_records else None
     latest_deposit = deposit_records[-1] if deposit_records else None
 
@@ -207,7 +217,7 @@ async def finance_agent_node(state: dict[str, Any]) -> dict[str, Any]:
         ),
         "lending_rates": _latest(
             rates_records,
-            ["walr_fresh_pct", "mclr_1yr_median_pct", "wadtdr_fresh_pct"],
+            ["walr_fresh_pct", "mclr_1yr_median_pct", "wadtdr_fresh_pct", "repo_rate_pct", "lending_spread_over_repo_pct"],
         ),
         "deposits": {
             **_latest(

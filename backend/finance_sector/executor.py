@@ -6,6 +6,7 @@ and deposit mobilisation.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -113,11 +114,19 @@ class FinanceSectorAgentExecutor(AgentExecutor):
         )
 
         try:
-            # Fetch data across pillars
-            credit_records = await client.fetch_bank_credit_growth(lookback_months=6)
-            quality_records = await client.fetch_asset_quality(BankGroup.ALL_SCB, lookback_quarters=4)
-            rates_records = await client.fetch_lending_rates(lookback_months=6)
-            deposits_records = await client.fetch_deposits_and_cd_ratio(lookback_months=6)
+            # Fetch data across pillars independently
+            results = await asyncio.gather(
+                client.fetch_bank_credit_growth(lookback_months=6),
+                client.fetch_asset_quality(BankGroup.ALL_SCB, lookback_quarters=4),
+                client.fetch_lending_rates(lookback_months=6),
+                client.fetch_deposits_and_cd_ratio(lookback_months=6),
+                return_exceptions=True,
+            )
+
+            credit_records = results[0] if not isinstance(results[0], Exception) else []
+            quality_records = results[1] if not isinstance(results[1], Exception) else []
+            rates_records = results[2] if not isinstance(results[2], Exception) else []
+            deposits_records = results[3] if not isinstance(results[3], Exception) else []
 
             summary_lines = [
                 "# Finance & Banking Sector Intelligence Report",
@@ -198,6 +207,14 @@ class FinanceSectorAgentExecutor(AgentExecutor):
             )
 
         except Exception as exc:
+            await event_queue.emit(
+                TaskStatusUpdateEvent(
+                    task_id=task_id,
+                    status=TaskState.FAILED,
+                    message=f"Task execution failed: {exc}",
+                    timestamp=datetime.now(timezone.utc),
+                )
+            )
             err_msg = A2AMessage(
                 message_id=f"msg_err_{uuid.uuid4().hex[:8]}",
                 role="agent",

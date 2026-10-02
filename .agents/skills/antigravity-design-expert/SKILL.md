@@ -35,7 +35,7 @@ When asked to build or generate UI components, default to the following stack un
 
 ## 🎬 Motion & Animation Rules
 
-- **Never snap instantly:** All state changes (hover, focus, active) must have smooth transitions (minimum `0.3s ease-out`).
+- **Never snap instantly:** When reduced motion is not preferred, all state changes (hover, focus, active) must have smooth transitions (minimum `0.3s ease-out`). When `prefers-reduced-motion: reduce` is active, disable transitions and animations.
 - **Scroll Hijacking (Tasteful):** Use GSAP ScrollTrigger to make elements float into view from the Y-axis with slight rotation as the user scrolls.
 - **Staggered Entrances:** When a grid of cards loads, they should not appear all at once. Stagger their entrance animations by `0.1s` so they drop in like dominoes.
 - **Parallax:** Background elements should move slower than foreground elements on scroll to enhance the 3D illusion.

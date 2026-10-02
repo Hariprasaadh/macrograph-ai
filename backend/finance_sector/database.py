@@ -162,7 +162,7 @@ def get_connection() -> Generator[duckdb.DuckDBPyConnection, None, None]:
             con.close()
 
 
-def initialise_schema(seed_baseline: bool = True) -> None:
+def initialise_schema(seed_baseline: bool = False) -> None:
     """Create all tables and indices if they do not yet exist, and optionally seed baseline data."""
     _ensure_data_dir()
     with get_connection() as con:

@@ -92,8 +92,17 @@ class PricesSectorAgentExecutor(AgentExecutor):
 
     async def _fetch_mospi_cpi_data(self) -> Dict[str, Any]:
         """Queries the official MoSPI FastMCP server for the most recent All India Combined CPI data."""
-        # Try latest available months
-        for year, month_code in [(2025, 12), (2025, 11), (2025, 6), (2024, 12)]:
+        now = datetime.now(timezone.utc)
+        candidates = []
+        cur_year, cur_month = now.year, now.month
+        for _ in range(12):
+            candidates.append((cur_year, cur_month))
+            cur_month -= 1
+            if cur_month == 0:
+                cur_month = 12
+                cur_year -= 1
+
+        for year, month_code in candidates:
             try:
                 resp = await call_mospi_mcp(
                     "get_data",
@@ -115,6 +124,7 @@ class PricesSectorAgentExecutor(AgentExecutor):
                 if rows:
                     period_str = f"{year}-{month_code:02d}"
                     breakdown = {}
+                    headline_cpi_val = None
                     cfpi_val = None
                     misc_val = None
                     health_val = None
@@ -137,7 +147,9 @@ class PricesSectorAgentExecutor(AgentExecutor):
                             "inflation_pct": inf_float,
                         }
 
-                        if "Consumer Food Price" in grp:
+                        if "General Index" in grp or grp.strip() == "General" or ("Combined" in grp and not subgrp):
+                            headline_cpi_val = inf_float
+                        elif "Consumer Food Price" in grp:
                             cfpi_val = inf_float
                         elif "Health" in subgrp:
                             health_val = inf_float
@@ -154,6 +166,7 @@ class PricesSectorAgentExecutor(AgentExecutor):
                         "period": period_str,
                         "year": year,
                         "month_code": month_code,
+                        "headline_cpi_inflation_pct": headline_cpi_val,
                         "consumer_food_price_inflation_pct": cfpi_val,
                         "health_inflation_pct": health_val,
                         "housing_inflation_pct": housing_val,
@@ -170,28 +183,30 @@ class PricesSectorAgentExecutor(AgentExecutor):
                 logger.warning("Failed to fetch MoSPI CPI for %s-%s: %s", year, month_code, e)
                 continue
 
-        # Verified fallback if network is completely unreachable
+        # Fallback if network is completely unreachable
         return {
-            "period": "2025-12",
-            "year": 2025,
-            "month_code": 12,
-            "consumer_food_price_inflation_pct": -2.71,
-            "health_inflation_pct": 3.43,
-            "housing_inflation_pct": 2.86,
-            "fuel_and_light_inflation_pct": 1.97,
-            "transport_inflation_pct": 0.82,
-            "miscellaneous_inflation_pct": 6.17,
+            "period": "unavailable",
+            "year": None,
+            "month_code": None,
+            "headline_cpi_inflation_pct": None,
+            "consumer_food_price_inflation_pct": None,
+            "health_inflation_pct": None,
+            "housing_inflation_pct": None,
+            "fuel_and_light_inflation_pct": None,
+            "transport_inflation_pct": None,
+            "miscellaneous_inflation_pct": None,
+            "subgroups": {},
             "source_authority": "National Statistical Office (NSO), MoSPI",
             "mcp_server": "https://mcp.mospi.gov.in/",
             "dataset": "CPI",
-            "status": "cached",
+            "status": "unavailable",
         }
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> TaskResponse:
         """Executes incoming A2A task request for Indian Inflation and Price indices."""
         task_id = context.task_id
 
-        await event_queue.put(
+        await event_queue.emit(
             TaskStatusUpdateEvent(
                 task_id=task_id,
                 status=TaskState.WORKING,
@@ -209,7 +224,7 @@ class PricesSectorAgentExecutor(AgentExecutor):
                 "sector": "prices_sector",
                 "indicators": {
                     "cpi_headline": {
-                        "latest_value": cpi_data.get("consumer_food_price_inflation_pct", 3.65),
+                        "latest_value": cpi_data.get("headline_cpi_inflation_pct"),
                         "unit": "% YoY",
                         "latest_period": cpi_data["period"],
                         "data_status": cpi_data["status"],
@@ -254,15 +269,16 @@ class PricesSectorAgentExecutor(AgentExecutor):
             },
         )
 
-        await event_queue.put(TaskArtifactUpdateEvent(task_id=task_id, artifact=artifact))
+        await event_queue.emit(TaskArtifactUpdateEvent(task_id=task_id, artifact=artifact))
 
         message = A2AMessage(
             role="assistant",
             parts=[
                 A2AMessagePart(
                     type="text",
-                    text=(
+                    content=(
                         f"Official MoSPI e-Sankhyiki CPI Analysis (Period: {cpi_data['period']}): "
+                        f"Headline CPI Inflation is {cpi_data.get('headline_cpi_inflation_pct')}% YoY. "
                         f"Consumer Food Price Inflation stands at {cpi_data.get('consumer_food_price_inflation_pct')}% YoY. "
                         f"Health Inflation is {cpi_data.get('health_inflation_pct')}%, "
                         f"Housing Inflation is {cpi_data.get('housing_inflation_pct')}%, and "

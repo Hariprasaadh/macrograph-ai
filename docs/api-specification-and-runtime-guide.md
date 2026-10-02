@@ -58,7 +58,7 @@ Macrograph-AI decomposes the Indian macroeconomy into **10 specialized sector ag
 ### Environment Configuration
 
 #### Backend Configuration (`backend/.env`)
-The backend loads configuration from [`backend/.env`](file:///c:/Users/Dell/Documents/GitHub/macrograph-ai/backend/.env):
+The backend loads configuration from [`backend/.env`](backend/.env):
 ```bash
 # Groq LLM API Configuration
 GROQ_API_KEY=gsk_your_groq_api_key_here
@@ -91,7 +91,7 @@ VITE_GOOGLE_CLIENT_ID=your_client_id.apps.googleusercontent.com
 
 ```powershell
 # Navigate to the backend directory
-cd c:\Users\Dell\Documents\GitHub\macrograph-ai\backend
+cd backend
 
 # Run Uvicorn server on port 8000
 python -m uvicorn main:app --port 8000 --host 127.0.0.1 --reload
@@ -105,7 +105,7 @@ python -m uvicorn main:app --port 8000 --host 127.0.0.1 --reload
 
 ```powershell
 # In a new terminal, navigate to the frontend directory
-cd c:\Users\Dell\Documents\GitHub\macrograph-ai\frontend
+cd frontend
 
 # Install dependencies (first time only)
 npm install

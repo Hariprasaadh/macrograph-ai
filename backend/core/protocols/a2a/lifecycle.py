@@ -30,6 +30,10 @@ class EventQueue:
         for sub in self._subscribers:
             await sub.put(event)
 
+    async def put(self, event: Any) -> None:
+        """Alias for emit to support event_queue.put()."""
+        await self.emit(event)
+
     async def get(self) -> Any:
         return await self._queue.get()
 

@@ -41,7 +41,7 @@ It answers four fundamental macroeconomic questions:
 
 ## 3. Official Indian Data Sources (MoSPI eSankhyiki MCP)
 
-All empirical data is retrieved from official **Ministry of Statistics and Programme Implementation (MoSPI)** endpoints via the **eSankhyiki MCP Server** (`https://mcp.mospi.gov.in/`).
+Services production and survey datasets are retrieved from official **Ministry of Statistics and Programme Implementation (MoSPI)** endpoints via the **eSankhyiki MCP Server** (`https://mcp.mospi.gov.in/`). Services PMI sentiment is sourced from S&P Global / HSBC, and high-frequency transport & telecom metrics are sourced from DGCA, IPA, and TRAI.
 
 ### MoSPI Dataset Key
 

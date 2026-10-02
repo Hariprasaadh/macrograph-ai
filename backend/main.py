@@ -282,46 +282,46 @@ def get_dashboard_overview() -> Dict[str, Any]:
         {
             "sector": "Real Sector (GDP/GVA)",
             "indicator": "Real GDP Growth Rate",
-            "value": "6.8%",
+            "value": None,
             "frequency": "Quarterly (FY25/26)",
             "source": "MoSPI e-Sankhyiki MCP (NAS)",
-            "status": "Live Official MoSPI",
+            "status": "unavailable",
             "is_mock": False
         },
         {
             "sector": "Prices & Inflation",
             "indicator": "Headline CPI Inflation",
-            "value": "4.20%",
+            "value": None,
             "frequency": "Monthly",
             "source": "MoSPI e-Sankhyiki MCP (CPI)",
-            "status": "Live Official MoSPI",
+            "status": "unavailable",
             "is_mock": False
         },
         {
             "sector": "Monetary & Liquidity",
             "indicator": "Policy Repo Rate",
-            "value": "6.25%",
+            "value": None,
             "frequency": "Bi-monthly MPC",
             "source": "RBI Monetary Policy Committee",
-            "status": "Live Benchmarked",
+            "status": "unavailable",
             "is_mock": False
         },
         {
             "sector": "Capital Markets",
             "indicator": "NIFTY 50 Index",
-            "value": "25,014.10",
+            "value": None,
             "frequency": "Daily",
             "source": "NSE India",
-            "status": "Live Benchmarked",
+            "status": "unavailable",
             "is_mock": False
         },
         {
             "sector": "External Sector",
             "indicator": "Forex Reserves",
-            "value": "$704.88 Billion",
+            "value": None,
             "frequency": "Weekly",
             "source": "RBI Weekly Statistical Supplement",
-            "status": "Live Benchmarked",
+            "status": "unavailable",
             "is_mock": False
         },
     ]
@@ -345,6 +345,47 @@ def get_dashboard_overview() -> Dict[str, Any]:
             "total_sectors": 10,
         }
     }
+
+
+def _build_finance_citations(ctx: dict, fresh: dict) -> list[dict]:
+    cits = []
+    credit_info = ctx.get("credit_growth", {})
+    if credit_info.get("status") != "unavailable" and credit_info.get("period"):
+        cits.append({
+            "source_agent": "finance_sector",
+            "authority": "Reserve Bank of India (RBI)",
+            "table": credit_info.get("source", "financial_sector.r539_deployment_of_bank_credit_by_major_sectors"),
+            "period": credit_info.get("period"),
+            "freshness": credit_info.get("freshness", fresh.get("credit", "cached")),
+        })
+    quality_info = ctx.get("asset_quality", {})
+    if quality_info.get("status") != "unavailable" and quality_info.get("period"):
+        cits.append({
+            "source_agent": "finance_sector",
+            "authority": "Reserve Bank of India (RBI)",
+            "table": quality_info.get("source", "financial_sector.r330_gross_and_net_npas_of_scheduled_commercial_banks"),
+            "period": quality_info.get("period"),
+            "freshness": quality_info.get("freshness", fresh.get("quality", "cached")),
+        })
+    rates_info = ctx.get("lending_rates", {})
+    if rates_info.get("status") != "unavailable" and rates_info.get("period"):
+        cits.append({
+            "source_agent": "finance_sector",
+            "authority": "Reserve Bank of India (RBI)",
+            "table": rates_info.get("source", "financial_sector.r531_key_rates"),
+            "period": rates_info.get("period"),
+            "freshness": rates_info.get("freshness", fresh.get("rates", "cached")),
+        })
+    deposits_info = ctx.get("deposits", {})
+    if deposits_info.get("status") != "unavailable" and deposits_info.get("period"):
+        cits.append({
+            "source_agent": "finance_sector",
+            "authority": "Reserve Bank of India (RBI)",
+            "table": deposits_info.get("source", "financial_sector.r689_business_of_scheduled_banks"),
+            "period": deposits_info.get("period"),
+            "freshness": deposits_info.get("freshness", fresh.get("deposits", "cached")),
+        })
+    return cits
 
 
 @app.post("/api/v1/chat/stream", tags=["Chat"])
@@ -391,36 +432,7 @@ async def stream_chat(request: ChatMessageRequest):
             if is_domain_decline:
                 citations = []
             else:
-                citations = [
-                    {
-                        "source_agent": "finance_sector",
-                        "authority": "Reserve Bank of India (RBI)",
-                        "table": "financial_sector.r539_deployment_of_bank_credit_by_major_sectors",
-                        "period": "2024-09",
-                        "freshness": freshness.get("credit", "cached")
-                    },
-                    {
-                        "source_agent": "finance_sector",
-                        "authority": "Reserve Bank of India (RBI)",
-                        "table": "financial_sector.r330_gross_and_net_npas_of_scheduled_commercial_banks",
-                        "period": "2024-06",
-                        "freshness": freshness.get("quality", "cached")
-                    },
-                    {
-                        "source_agent": "finance_sector",
-                        "authority": "Reserve Bank of India (RBI)",
-                        "table": "financial_sector.r531_key_rates",
-                        "period": "2024-09",
-                        "freshness": freshness.get("rates", "cached")
-                    },
-                    {
-                        "source_agent": "finance_sector",
-                        "authority": "Reserve Bank of India (RBI)",
-                        "table": "financial_sector.r689_business_of_scheduled_banks",
-                        "period": "2024-09",
-                        "freshness": freshness.get("deposits", "cached")
-                    }
-                ]
+                citations = _build_finance_citations(data_context, freshness)
 
             done_payload = {
                 "type": "done",
@@ -492,20 +504,15 @@ async def sync_chat(request: ChatMessageRequest) -> Dict[str, Any]:
     target = request.agent.lower()
     if target == "finance_sector":
         node_result = await finance_agent_node({"query": request.message})
+        d_context = node_result.get("finance_sector_data", {})
+        f_freshness = node_result.get("finance_sector_freshness", {})
         return {
             "status": "completed",
             "agent_routed": "Finance & Banking Sector Agent",
             "full_report": node_result.get("finance_sector_analysis", ""),
-            "data_context": node_result.get("finance_sector_data", {}),
-            "freshness": node_result.get("finance_sector_freshness", {}),
-            "citations": [
-                {
-                    "source_agent": "finance_sector",
-                    "authority": "Reserve Bank of India (RBI)",
-                    "table": "financial_sector.r539_deployment_of_bank_credit_by_major_sectors",
-                    "period": "2024-09",
-                }
-            ]
+            "data_context": d_context,
+            "freshness": f_freshness,
+            "citations": _build_finance_citations(d_context, f_freshness),
         }
     else:
         initial_state = {
@@ -513,7 +520,11 @@ async def sync_chat(request: ChatMessageRequest) -> Dict[str, Any]:
             "scenario_shock": request.scenario_shock,
             "status": "started"
         }
-        final_state = macro_orchestrator_graph.invoke(initial_state)
+        loop = asyncio.get_running_loop()
+        final_state = await loop.run_in_executor(
+            None,
+            lambda: macro_orchestrator_graph.invoke(initial_state)
+        )
         return {
             "status": "completed",
             "agent_routed": "Macrograph Orchestrator",

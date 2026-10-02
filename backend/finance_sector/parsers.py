@@ -147,7 +147,7 @@ def parse_credit_records(payload: Any) -> list[BankCreditGrowthRecord]:
                     period=str(period),
                     gross_credit_cr=gross or 0.0,
                     non_food_credit_cr=non_food or 0.0,
-                    non_food_credit_yoy_pct=yoy or 13.0,
+                    non_food_credit_yoy_pct=yoy,
                     sectoral=SectoralCreditBreakdown(
                         agriculture_cr=safe_float_val(agri_vals[idx]) if idx < len(agri_vals) else None,
                         industry_cr=safe_float_val(ind_vals[idx]) if idx < len(ind_vals) else None,
@@ -222,6 +222,8 @@ def parse_asset_quality(
     # Handle list-of-lists format from r330 table
     for row in raw_npa_rows:
         if isinstance(row, list) and len(row) > 10:
+            if bank_group != BankGroup.ALL_SCB:
+                continue
             row_no = safe_float_val(row[3])
             # Rows 12-22 represent aggregate All Scheduled Commercial Banks
             if row_no and row_no > 25:
@@ -234,20 +236,20 @@ def parse_asset_quality(
                 gnpa = safe_float_val(row[7])
                 gnpa_pct = round((gnpa / gross_adv * 100), 2) if gross_adv and gnpa else safe_float_val(row[8])
                 nnpa = safe_float_val(row[10])
-                nnpa_pct = round((nnpa / net_adv * 100), 2) if net_adv and nnpa else (safe_float_val(row[11]) if len(row) > 11 else 0.6)
-                pcr = round(((gnpa - nnpa) / gnpa * 100), 2) if gnpa and nnpa else 76.5
+                nnpa_pct = round((nnpa / net_adv * 100), 2) if net_adv and nnpa else (safe_float_val(row[11]) if len(row) > 11 else None)
+                pcr = round(((gnpa - nnpa) / gnpa * 100), 2) if gnpa and nnpa else None
 
                 records.append(
                     NPARecord(
                         period=period_str,
                         bank_group=BankGroup.ALL_SCB,
-                        gross_npa_pct=gnpa_pct or 2.8,
-                        net_npa_pct=nnpa_pct or 0.6,
+                        gross_npa_pct=gnpa_pct,
+                        net_npa_pct=nnpa_pct,
                         gross_npa_cr=gnpa,
                         net_npa_cr=nnpa,
                         provision_coverage_ratio_pct=pcr,
-                        crar_pct=16.8,  # Regulatory CRAR benchmark
-                        cet1_pct=13.7,
+                        crar_pct=None,
+                        cet1_pct=None,
                         citation=make_citation(
                             document_title="RBI DBIE — Gross and Net NPAs of Scheduled Commercial Banks",
                             table_reference="financial_sector.r330_gross_and_net_npas_of_scheduled_commercial_banks_bank_grou",
@@ -329,12 +331,12 @@ def parse_lending_rates(payload: Any, lookback_months: int) -> list[LendingRateR
                 records.append(
                     LendingRateRecord(
                         period=period_str,
-                        walr_fresh_pct=9.38,
-                        walr_outstanding_pct=9.87,
-                        mclr_1yr_median_pct=8.85,
-                        wadtdr_fresh_pct=6.51,
-                        wadtdr_outstanding_pct=6.92,
-                        repo_rate_pct=repo_rate or 6.50,
+                        walr_fresh_pct=None,
+                        walr_outstanding_pct=None,
+                        mclr_1yr_median_pct=None,
+                        wadtdr_fresh_pct=None,
+                        wadtdr_outstanding_pct=None,
+                        repo_rate_pct=repo_rate,
                         citation=make_citation(
                             document_title="RBI DBIE — Key Rates (WALR, MCLR, WADTDR)",
                             table_reference="financial_sector.r531_key_rates",
@@ -387,14 +389,10 @@ def parse_deposits(survey: Any, business: Any, lookback_months: int) -> list[Dep
             casa: float | None = None
             if demand_val is not None and dep_val and dep_val > 0:
                 casa = round((demand_val / dep_val) * 100, 2)
-            if casa is None or casa < 20.0 or casa > 55.0:
-                casa = 38.6  # Official RBI SCB CASA ratio baseline
 
             cd_ratio: float | None = None
             if credit_val and dep_val and dep_val > 0:
                 cd_ratio = round((credit_val / dep_val) * 100, 2)
-            if cd_ratio is None or cd_ratio > 90.0 or cd_ratio < 65.0:
-                cd_ratio = 78.4  # Official RBI SCB Credit-to-Deposit ratio baseline
 
             records.append(
                 DepositRecord(

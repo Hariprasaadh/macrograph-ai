@@ -668,6 +668,7 @@ class TestFinanceAgentNode:
 
     def test_pydantic_ai_agent_offline_verification(self):
         """Verifies PydanticAI Agent runs offline with TestModel adhering to the pydantic-ai skill."""
+        pytest.importorskip("pydantic_ai")
         from pydantic_ai.models.test import TestModel
         from finance_sector.agent import create_pydantic_ai_agent, FinanceAnalysisOutput
 

@@ -88,7 +88,7 @@ graph TD
 
 When generating an implementation plan, output using this standardized structure:
 
-```markdown
+````markdown
 # Implementation Plan: [Feature / Refactor / Bug Fix Title]
 
 ## 1. Executive Summary & Objective
@@ -157,4 +157,4 @@ When generating an implementation plan, output using this standardized structure
   - [ ] No regression in existing test suite.
   - [ ] Zero lint/type errors.
   - [ ] Zero duplicate code or unnecessary abstractions.
-```
+````

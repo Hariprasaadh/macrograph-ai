@@ -15,7 +15,7 @@ class FinanceSectorSettings(BaseSettings):
     """Finance-sector-specific settings."""
 
     # API key for the finance sector LLM calls (FS_KEY from .env)
-    FS_KEY: str = Field(..., description="Groq API key for finance sector agent")
+    FS_KEY: str | None = Field(default=None, description="Groq API key for finance sector agent")
 
     # LLM model for this sector
     FINANCE_LLM_MODEL: str = Field(

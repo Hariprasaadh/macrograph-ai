@@ -96,7 +96,7 @@ ScrollTrigger.create({
 });
 ```
 
-Kill on teardown: `ScrollTrigger.getAll().forEach(t => t.kill())` inside context revert (automatic with `useGSAP`).
+Kill on teardown: Rely on GSAP context reversion (`ctx.revert()`, automatic with `useGSAP`) to clean up triggers created by that context, or specify killing only triggers owned by the component.
 
 ## Performance notes
 

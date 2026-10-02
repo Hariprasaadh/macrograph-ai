@@ -187,6 +187,7 @@ def _load_credit_from_cache(lookback_months: int) -> list[BankCreditGrowthRecord
                 citation=citation,
             )
         )
+    records.sort(key=lambda r: str(r.period))
     return records
 
 
@@ -259,7 +260,10 @@ def _load_asset_quality_from_cache(bank_group: BankGroup, lookback_quarters: int
                 citation=citation,
             )
         )
-    return records[:lookback_quarters]
+    records.sort(key=lambda r: str(r.period), reverse=True)
+    retained = records[:lookback_quarters]
+    retained.sort(key=lambda r: str(r.period))
+    return retained
 
 
 # ── Pillar 3: Lending Rates ───────────────────────────────────────────────
@@ -320,6 +324,7 @@ def _load_lending_rates_from_cache(lookback_months: int) -> list[LendingRateReco
                 citation=citation,
             )
         )
+    records.sort(key=lambda r: str(r.period))
     return records
 
 
@@ -380,4 +385,5 @@ def _load_deposits_from_cache(lookback_months: int) -> list[DepositRecord]:
                 citation=citation,
             )
         )
+    records.sort(key=lambda r: str(r.period))
     return records

@@ -66,7 +66,7 @@ async def sector_metadata() -> dict[str, Any]:
                 "name": "get_bank_credit_growth",
                 "description": "Non-food gross bank credit and sectoral deployment (Agri, Industry, MSME, Services, Retail).",
                 "frequency": "Monthly / Fortnightly",
-                "table": "financial_sector.r999_sectoral_deployment_of_non_food_gross_bank_credit_outstand",
+                "table": "financial_sector.r539_deployment_of_bank_credit_by_major_sectors",
             },
             {
                 "name": "get_asset_quality",

@@ -93,9 +93,9 @@ def parallel_a2a_execute_node(state: OrchestratorState) -> Dict[str, Any]:
     sector_agent_map = {
         SectorEnum.REAL_ECONOMY.value: "Real Sector Macroeconomic Agent",
         SectorEnum.PRICES_INFLATION.value: "Prices & Inflation Sector Macroeconomic Agent",
-        SectorEnum.MONETARY_BANKING.value: "Finance Sector Macroeconomic Agent",
-        SectorEnum.FISCAL.value: "Finance Sector Macroeconomic Agent",
-        SectorEnum.EXTERNAL.value: "Finance Sector Macroeconomic Agent",
+        SectorEnum.MONETARY_BANKING.value: "Finance & Banking Sector Macroeconomic Agent",
+        SectorEnum.FISCAL.value: "Finance & Banking Sector Macroeconomic Agent",
+        SectorEnum.EXTERNAL.value: "Finance & Banking Sector Macroeconomic Agent",
         SectorEnum.CAPITAL_MARKETS.value: "Capital Markets Macroeconomic Agent",
         SectorEnum.AGRICULTURE_RURAL.value: "Real Sector Macroeconomic Agent",
         SectorEnum.LABOUR_EMPLOYMENT.value: "Real Sector Macroeconomic Agent",
@@ -103,7 +103,7 @@ def parallel_a2a_execute_node(state: OrchestratorState) -> Dict[str, Any]:
 
     agents_to_call = list(set(sector_agent_map.get(s) for s in target_sectors if sector_agent_map.get(s)))
     if not agents_to_call:
-        agents_to_call = ["Real Sector Macroeconomic Agent", "Finance Sector Macroeconomic Agent", "Capital Markets Macroeconomic Agent", "Prices & Inflation Sector Macroeconomic Agent"]
+        agents_to_call = ["Real Sector Macroeconomic Agent", "Finance & Banking Sector Macroeconomic Agent", "Capital Markets Macroeconomic Agent", "Prices & Inflation Sector Macroeconomic Agent"]
 
     # Dispatch tasks through A2A AgentRegistry
     for agent_name in agents_to_call:

@@ -123,6 +123,11 @@ const CLOSED = 'M4,7 L20,7 M4,12 L20,12 M4,17 L20,17';
 export function MenuIcon({ open }: { open: boolean }) {
   const path = useRef<SVGPathElement>(null);
   useGSAP(() => {
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (prefersReducedMotion) {
+      path.current?.setAttribute('d', open ? OPEN : CLOSED);
+      return;
+    }
     gsap.to(path.current, {
       duration: 0.35, morphSVG: open ? OPEN : CLOSED, ease: 'power2.inOut',
     });
@@ -147,16 +152,21 @@ For README-embeddable morph without JS → `svg-creation` SMIL example 3.
 **Output:**
 
 ```js
-const tl = gsap.timeline({
-  scrollTrigger: {
-    trigger: '.diagram',
-    start: 'top top',
-    end: '+=1200',
-    pin: true,
-    scrub: 1,
-  },
-});
-tl.from('.wire', { drawSVG: 0, duration: 1, stagger: 0.2 });
+const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+if (prefersReducedMotion) {
+  gsap.set('.wire', { drawSVG: '100%' });
+} else {
+  const tl = gsap.timeline({
+    scrollTrigger: {
+      trigger: '.diagram',
+      start: 'top top',
+      end: '+=1200',
+      pin: true,
+      scrub: 1,
+    },
+  });
+  tl.from('.wire', { drawSVG: 0, duration: 1, stagger: 0.2 });
+}
 ```
 
 Each `.wire` path needs `stroke` + `stroke-width`. Split multi-segment paths before animating.

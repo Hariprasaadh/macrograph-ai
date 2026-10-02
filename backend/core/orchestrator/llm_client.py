@@ -37,7 +37,11 @@ class ModelAgnosticLLMClient:
                     from groq import Groq
                     class _GroqWrapper:
                         def __init__(self, key: str, model: str, temp: float):
-                            self.client = Groq(api_key=key)
+                            self.client = Groq(
+                                api_key=key,
+                                timeout=settings.LLM_TIMEOUT,
+                                max_retries=1,
+                            )
                             self.model = model
                             self.temp = temp
                         def invoke(self, messages: list):

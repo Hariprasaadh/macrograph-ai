@@ -23,6 +23,11 @@ logger = logging.getLogger(__name__)
 MOSPI_MCP_URL = "https://mcp.mospi.gov.in/"
 
 
+class MospiMCPError(RuntimeError):
+    """Raised when MoSPI FastMCP server returns a JSON-RPC error."""
+    pass
+
+
 @retry(
     retry=retry_if_exception_type((httpx.TimeoutException, httpx.NetworkError, httpx.HTTPStatusError)),
     wait=wait_exponential(multiplier=1, min=2, max=8),
@@ -50,10 +55,32 @@ async def call_mospi_mcp(tool_name: str, arguments: Dict[str, Any], timeout: flo
         if resp.is_error:
             resp.raise_for_status()
 
+        # Handle direct JSON response
+        if "application/json" in resp.headers.get("content-type", "") and not resp.text.strip().startswith("data:"):
+            try:
+                body = resp.json()
+                if "error" in body:
+                    err = body["error"]
+                    err_msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
+                    raise MospiMCPError(f"MoSPI MCP JSON-RPC error: {err_msg}")
+                content = body.get("result", {}).get("content", [])
+                if content and isinstance(content, list):
+                    text_data = content[0].get("text", "")
+                    try:
+                        return json.loads(text_data)
+                    except Exception:
+                        return text_data
+            except json.JSONDecodeError:
+                pass
+
         # Parse SSE response text
         for line in resp.text.split("\n"):
             if line.startswith("data: "):
                 event = json.loads(line[6:])
+                if "error" in event:
+                    err = event["error"]
+                    err_msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
+                    raise MospiMCPError(f"MoSPI MCP JSON-RPC error: {err_msg}")
                 content = event.get("result", {}).get("content", [])
                 if content and isinstance(content, list):
                     text_data = content[0].get("text", "")
