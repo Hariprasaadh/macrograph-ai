@@ -62,7 +62,7 @@ The backend loads configuration from [`backend/.env`](backend/.env):
 ```bash
 # Groq LLM API Configuration
 GROQ_API_KEY=gsk_your_groq_api_key_here
-FS_KEY=gsk_your_groq_api_key_here
+FIN_FIS_KEY=gsk_your_groq_api_key_here
 
 # Model Selection
 MODEL_PROVIDER=groq
