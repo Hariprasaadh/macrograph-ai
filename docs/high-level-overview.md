@@ -135,9 +135,7 @@ Used when the query is bounded to a single domain. Bypasses the Orchestrator.
 
 ## The 10 Sector Agents
 
-| # | Agent | Module | Domain | Primary MCP Sources |
-| :- | :--- | :--- | :--- | :--- |
-| # | Agent | Module | Domain | Primary MCP Sources |
+|  | Agent | Module | Domain | Primary MCP Sources |
 | :- | :--- | :--- | :--- | :--- |
 | 1 | **Real Sector** | `real_sector/` | GDP, GVA, National Accounts | MoSPI e-Sankhyiki FastMCP (`https://mcp.mospi.gov.in/` - NAS, IIP) |
 | 2 | **Agriculture** | `agriculture_sector/` | Crop production, MSP, Monsoon, Mandi prices | Agmarknet, DAC&FW, IMD |

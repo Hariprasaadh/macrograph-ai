@@ -1,111 +1,133 @@
-"""Async HTTP client for the External Sector."""
+"""Unified client for India's External Sector.
+
+Integrates authoritative data from:
+1. RBI DBIE Live APIs (Forex reserves, daily exchange rates, merchandise trade)
+2. MoSPI eSankhyiki MCP (Quarterly invisibles/remittances, external debt structure)
+3. IMF SDMX 3.0 MCP Server (WEO medium-term CAD/GDP projections and trade benchmarks)
+4. Yahoo Finance Market Client (Intraday spot FX & Brent crude benchmark)
+5. Tavily AI Search (Breaking real-time macroeconomic news & external shocks)
+"""
 from __future__ import annotations
 
-import json
 import logging
 from datetime import datetime, timezone
 from typing import Any
 
-import httpx
-from tenacity import (
-    before_sleep_log,
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
+from external_sector.cache_loaders import (
+    ExternalDataUnavailableError,
+    load_bop_from_cache,
+    load_exchange_rates_from_cache,
+    load_external_debt_from_cache,
+    load_forex_from_cache,
+    load_remittances_from_cache,
+    load_trade_from_cache,
+    prepare_cached_citation,
 )
-
 from external_sector import database as db
-from external_sector.config import external_settings
+from external_sector.dbie_client import (
+    fetch_raw_exchange_rates,
+    fetch_raw_forex,
+    fetch_raw_trade,
+)
+from external_sector.imf_client import imf_client
+from external_sector.market_client import fetch_live_market_rates as get_live_rates
 from external_sector.models import (
     BoPRecord,
     Citation,
     DataFreshness,
     ExchangeRateRecord,
+    ExternalDebtRecord,
     ExternalFlowsRecord,
     ForexReservesRecord,
+    IMFExternalOutlookRecord,
+    LiveMarketRatesRecord,
+    RealtimeIntelligenceRecord,
+    RemittancesRecord,
     TradeBalanceRecord,
 )
+from external_sector.mospi_client import fetch_mospi_rbi_dataset
 from external_sector.parsers import (
     parse_exchange_rates,
     parse_forex_reserves,
+    parse_mospi_external_debt,
+    parse_mospi_invisibles,
+    parse_period_sort_key,
     parse_trade_balance,
+    safe_float_val,
 )
+from external_sector.tavily_client import fetch_realtime_intelligence as get_realtime_news
 
 logger = logging.getLogger(__name__)
 
-_CDN = external_settings.DBIE_CDN_BASE
-_FOREX_CDN_URL = f"{_CDN}/forex-reserves.json"
-_API = external_settings.DBIE_API_BASE
-_TRADE_BALANCE_API_URL = (
-    f"{_API}/external_sector/r433_india_s_foreign_trade_us_dollars/rows"
-)
-_EXCHANGE_RATE_API_URL = f"{_API}/external_sector/r575_exchange_rate/rows"
 
+# ── Pillar 1: Trade Balance & Critical Dependency ─────────────────────────
 
-class ExternalDataUnavailableError(Exception):
-    """Raised when neither live fetch nor cache can supply external sector data."""
-
-
-def _make_retry():
-    return retry(
-        retry=retry_if_exception_type((httpx.TimeoutException, httpx.NetworkError, httpx.HTTPStatusError)),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
-        stop=stop_after_attempt(3),
-        before_sleep=before_sleep_log(logger, logging.WARNING),
-        reraise=True,
-    )
-
-
-@_make_retry()
-async def _fetch_json(client: httpx.AsyncClient, url: str, params: dict | None = None) -> Any:
-    response = await client.get(url, params=params, timeout=external_settings.DBIE_TIMEOUT)
-    if response.is_error:
-        response.raise_for_status()
-    return response.json()
-
-
-def _build_client() -> httpx.AsyncClient:
-    return httpx.AsyncClient(
-        timeout=httpx.Timeout(
-            float(external_settings.DBIE_TIMEOUT),
-            connect=external_settings.HTTP_CONNECT_TIMEOUT,
-            read=external_settings.HTTP_READ_TIMEOUT,
-        ),
-        headers={"User-Agent": "macrograph-ai/external-sector"},
-        follow_redirects=True,
-    )
-
-
-def _prepare_cached_citation(citation_data: Any) -> Citation:
-    if isinstance(citation_data, str):
-        citation_data = json.loads(citation_data)
-    elif not isinstance(citation_data, dict):
-        citation_data = {}
-    citation_data["freshness"] = DataFreshness.CACHED
-    return Citation.model_validate(citation_data)
-
-
-# ── Pillar 1: Forex Reserves ──────────────────────────────────────────────
-
-async def fetch_forex_reserves(lookback_weeks: int = 12) -> list[ForexReservesRecord]:
+async def fetch_trade_balance(lookback_months: int = 24) -> list[TradeBalanceRecord]:
+    """Fetch merchandise & services trade data, prioritizing live RBI DBIE with MoSPI composition."""
     db.initialise_schema()
     try:
-        async with _build_client() as client:
-            payload = await _fetch_json(client, _FOREX_CDN_URL)
-        records = parse_forex_reserves(payload, lookback_weeks)
+        raw_items = await fetch_raw_trade(limit=lookback_months * 4)
+        records = parse_trade_balance(raw_items, lookback_months)
+        if not records:
+            raise ValueError("Parsed trade balance returned 0 records.")
 
+        now = datetime.now(timezone.utc).isoformat()
+        db_rows = [
+            {
+                "period": r.period,
+                "exports_usd_bn": r.exports_usd_bn,
+                "imports_usd_bn": r.imports_usd_bn,
+                "trade_balance_usd_bn": r.trade_balance_usd_bn,
+                "oil_imports_usd_bn": r.oil_imports_usd_bn,
+                "non_oil_imports_usd_bn": r.non_oil_imports_usd_bn,
+                "oil_exports_usd_bn": r.oil_exports_usd_bn,
+                "non_oil_exports_usd_bn": r.non_oil_exports_usd_bn,
+                "services_surplus_usd_bn": r.services_surplus_usd_bn,
+                "citation": r.citation.model_dump_json(),
+                "fetched_at": now,
+            }
+            for r in records
+        ]
+        written = db.upsert_rows("trade_balance", db_rows)
+        db.log_fetch("get_trade_balance", "live", rows_written=written)
+        return records
+    except Exception as exc:
+        logger.warning("Live trade fetch failed: %s. Falling back to cache.", exc)
+        db.log_fetch("get_trade_balance", "cache_fallback", error_msg=str(exc))
+        return load_trade_from_cache(lookback_months)
+
+
+# ── Pillar 2: Balance of Payments (BoP) ───────────────────────────────────
+
+async def fetch_balance_of_payments(lookback_quarters: int = 8) -> list[BoPRecord]:
+    """Fetch quarterly BoP snapshots (CAD, Capital Account, Services surplus)."""
+    db.initialise_schema()
+    return load_bop_from_cache(lookback_quarters)
+
+
+# ── Pillar 3: Forex Reserves & External Liquidity ─────────────────────────
+
+async def fetch_forex_reserves(lookback_weeks: int = 52) -> list[ForexReservesRecord]:
+    """Fetch weekly foreign exchange reserves from RBI DBIE."""
+    db.initialise_schema()
+    try:
+        raw_items = await fetch_raw_forex()
+        records = parse_forex_reserves(raw_items, lookback_weeks)
+        if not records:
+            raise ValueError("Parsed forex reserves returned 0 records.")
+
+        now = datetime.now(timezone.utc).isoformat()
         db_rows = [
             {
                 "period": r.period,
                 "total_reserves_usd_mn": r.total_reserves_usd_mn,
-                "total_reserves_inr_cr": r.total_reserves_inr_cr,
                 "foreign_currency_assets_usd_mn": r.foreign_currency_assets_usd_mn,
                 "gold_reserves_usd_mn": r.gold_reserves_usd_mn,
                 "sdrs_usd_mn": r.sdrs_usd_mn,
                 "reserve_tranche_position_usd_mn": r.reserve_tranche_position_usd_mn,
+                "import_cover_months": r.import_cover_months,
                 "citation": r.citation.model_dump_json(),
-                "fetched_at": datetime.now(timezone.utc).isoformat(),
+                "fetched_at": now,
             }
             for r in records
         ]
@@ -115,124 +137,20 @@ async def fetch_forex_reserves(lookback_weeks: int = 12) -> list[ForexReservesRe
     except Exception as exc:
         logger.warning("Live forex fetch failed: %s. Falling back to cache.", exc)
         db.log_fetch("get_forex_reserves", "cache_fallback", error_msg=str(exc))
-        return _load_forex_from_cache(lookback_weeks)
+        return load_forex_from_cache(lookback_weeks)
 
 
-def _load_forex_from_cache(lookback_weeks: int) -> list[ForexReservesRecord]:
-    rows = db.query_latest_rows("forex_reserves", lookback_weeks)
-    if not rows:
-        raise ExternalDataUnavailableError("Forex reserves data unavailable: live fetch failed and cache is empty.")
-    records = []
-    for row in rows:
-        citation = _prepare_cached_citation(row.get("citation", {}))
-        records.append(
-            ForexReservesRecord(
-                period=row["period"],
-                total_reserves_usd_mn=row.get("total_reserves_usd_mn"),
-                total_reserves_inr_cr=row.get("total_reserves_inr_cr"),
-                foreign_currency_assets_usd_mn=row.get("foreign_currency_assets_usd_mn"),
-                gold_reserves_usd_mn=row.get("gold_reserves_usd_mn"),
-                sdrs_usd_mn=row.get("sdrs_usd_mn"),
-                reserve_tranche_position_usd_mn=row.get("reserve_tranche_position_usd_mn"),
-                citation=citation,
-            )
-        )
-    return records
+# ── Pillar 4: Exchange Rates & External Competitiveness ───────────────────
 
-
-# ── Pillar 2: Trade Balance ───────────────────────────────────────────────
-
-async def fetch_trade_balance(lookback_months: int = 12) -> list[TradeBalanceRecord]:
+async def fetch_exchange_rates(lookback_days: int = 90) -> list[ExchangeRateRecord]:
+    """Fetch USD/INR and reference rates from RBI DBIE."""
     db.initialise_schema()
     try:
-        async with _build_client() as client:
-            payload = await _fetch_json(
-                client,
-                _TRADE_BALANCE_API_URL,
-                params={"limit": lookback_months + 8, "offset": 0},
-            )
-        records = parse_trade_balance(payload, lookback_months)
+        raw_items = await fetch_raw_exchange_rates(limit=lookback_days)
+        records = parse_exchange_rates(raw_items, lookback_days)
         if not records:
-            raise ValueError("RBI DBIE returned no usable merchandise trade rows.")
-        now = datetime.now(timezone.utc).isoformat()
-        rows_to_write = [
-            {
-                "period": record.period,
-                "exports_usd_bn": record.exports_usd_bn,
-                "imports_usd_bn": record.imports_usd_bn,
-                "trade_balance_usd_bn": record.trade_balance_usd_bn,
-                "citation": record.citation.model_dump_json(),
-                "fetched_at": now,
-            }
-            for record in records
-        ]
-        written = db.upsert_rows("trade_balance", rows_to_write)
-        db.log_fetch("get_trade_balance", "live", rows_written=written)
-        return records
-    except Exception as exc:
-        logger.warning("Live trade-balance fetch failed: %s. Falling back to cache.", exc)
-        db.log_fetch("get_trade_balance", "cache_fallback", error_msg=str(exc))
-        return _load_trade_balance_from_cache(lookback_months)
+            raise ValueError("Parsed exchange rates returned 0 records.")
 
-
-def _load_trade_balance_from_cache(lookback_months: int) -> list[TradeBalanceRecord]:
-    rows = db.query_latest_rows("trade_balance", lookback_months)
-    records = []
-    for row in rows:
-        citation = _prepare_cached_citation(row.get("citation", {}))
-        records.append(
-            TradeBalanceRecord(
-                period=row["period"],
-                exports_usd_bn=row.get("exports_usd_bn"),
-                imports_usd_bn=row.get("imports_usd_bn"),
-                trade_balance_usd_bn=row.get("trade_balance_usd_bn"),
-                citation=citation,
-            )
-        )
-    records.sort(key=lambda record: record.period, reverse=True)
-    if not records:
-        raise ExternalDataUnavailableError(
-            "Trade-balance data unavailable: live fetch failed and cache is empty."
-        )
-    return records
-
-
-# ── Pillar 3: Balance of Payments ─────────────────────────────────────────
-
-async def fetch_balance_of_payments(lookback_quarters: int = 8) -> list[BoPRecord]:
-    db.initialise_schema()
-    rows = db.query_latest_rows("bop", lookback_quarters)
-    records = []
-    for row in rows:
-        citation = _prepare_cached_citation(row.get("citation", {}))
-        records.append(
-            BoPRecord(
-                period=row["period"],
-                current_account_balance_usd_bn=row.get("current_account_balance_usd_bn"),
-                current_account_to_gdp_pct=row.get("current_account_to_gdp_pct"),
-                capital_account_balance_usd_bn=row.get("capital_account_balance_usd_bn"),
-                net_bop_usd_bn=row.get("net_bop_usd_bn"),
-                citation=citation,
-            )
-        )
-    return records
-
-
-# ── Pillar 4: Exchange Rate Snapshot ──────────────────────────────────────
-
-async def fetch_exchange_rate_snapshot(lookback_months: int = 12) -> list[ExchangeRateRecord]:
-    db.initialise_schema()
-    lookback_days = max(lookback_months, 1) * 23
-    try:
-        async with _build_client() as client:
-            payload = await _fetch_json(
-                client,
-                _EXCHANGE_RATE_API_URL,
-                params={"limit": lookback_days + 8, "offset": 0},
-            )
-        records = parse_exchange_rates(payload, lookback_days)
-        if not records:
-            raise ValueError("RBI DBIE returned no usable USD/INR exchange-rate rows.")
         now = datetime.now(timezone.utc).isoformat()
         rows_to_write = [
             {
@@ -251,45 +169,211 @@ async def fetch_exchange_rate_snapshot(lookback_months: int = 12) -> list[Exchan
     except Exception as exc:
         logger.warning("Live exchange-rate fetch failed: %s. Falling back to cache.", exc)
         db.log_fetch("get_exchange_rate_snapshot", "cache_fallback", error_msg=str(exc))
-        return _load_exchange_rates_from_cache(lookback_days)
+        return load_exchange_rates_from_cache(lookback_days)
 
 
-def _load_exchange_rates_from_cache(lookback_days: int) -> list[ExchangeRateRecord]:
-    rows = db.query_latest_rows("exchange_rates", lookback_days)
-    records = []
-    for row in rows:
-        citation = _prepare_cached_citation(row.get("citation", {}))
-        records.append(
-            ExchangeRateRecord(
-                period=row["period"],
-                usd_inr_rate=row.get("usd_inr_rate"),
-                reer_40_basket=row.get("reer_40_basket"),
-                neer_40_basket=row.get("neer_40_basket"),
-                citation=citation,
-            )
+fetch_exchange_rate_snapshot = fetch_exchange_rates
+
+
+# ── Pillar 5: Remittances & Cross-Border Invisibles ───────────────────────
+
+async def fetch_remittances_and_invisibles(lookback_years: int = 5) -> list[RemittancesRecord]:
+    """Fetch private remittances and services invisibles from MoSPI eSankhyiki / RBI."""
+    db.initialise_schema()
+    try:
+        raw_items = await fetch_mospi_rbi_dataset(
+            indicator_code=9,
+            filters={"year": "2024-25", "limit": "50"},
         )
-    records.sort(key=lambda record: record.period, reverse=True)
-    if not records:
-        raise ExternalDataUnavailableError(
-            "Exchange-rate data unavailable: live fetch failed and cache is empty."
-        )
-    return records
+        records = parse_mospi_invisibles(raw_items)
+        if not records:
+            raise ValueError("MoSPI returned empty invisibles data.")
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        db_rows = [
+            {
+                "period": r.period,
+                "private_transfers_net_usd_mn": r.private_transfers_net_usd_mn,
+                "receipts_usd_mn": r.receipts_usd_mn,
+                "payments_usd_mn": r.payments_usd_mn,
+                "services_receipts_usd_mn": r.services_receipts_usd_mn,
+                "services_net_usd_mn": r.services_net_usd_mn,
+                "citation": r.citation.model_dump_json(),
+                "fetched_at": now_iso,
+            }
+            for r in records
+        ]
+        written = db.upsert_rows("remittances_invisibles", db_rows)
+        db.log_fetch("get_remittances_and_invisibles", "live", rows_written=written)
+        return records[:lookback_years]
+    except Exception as exc:
+        logger.warning("Live remittances fetch failed: %s. Falling back to cache.", exc)
+        db.log_fetch("get_remittances_and_invisibles", "cache_fallback", error_msg=str(exc))
+        return load_remittances_from_cache(lookback_years)
 
 
-# ── Pillar 5: External Flows ──────────────────────────────────────────────
+# ── Pillar 6: External Flows & External Debt ──────────────────────────────
 
 async def fetch_external_flows(lookback_months: int = 12) -> list[ExternalFlowsRecord]:
+    """Fetch foreign direct & portfolio investment flows from database."""
     db.initialise_schema()
     rows = db.query_latest_rows("external_flows", lookback_months)
     records = []
     for row in rows:
-        citation = _prepare_cached_citation(row.get("citation", {}))
+        citation = prepare_cached_citation(row.get("citation", {}), "duckdb_cache_flows")
         records.append(
             ExternalFlowsRecord(
                 period=row["period"],
                 net_fdi_usd_mn=row.get("net_fdi_usd_mn"),
                 net_fpi_usd_mn=row.get("net_fpi_usd_mn"),
+                ecb_usd_mn=row.get("ecb_usd_mn"),
+                nri_deposits_usd_mn=row.get("nri_deposits_usd_mn"),
                 citation=citation,
             )
         )
     return records
+
+
+async def fetch_external_debt(lookback_quarters: int = 8) -> list[ExternalDebtRecord]:
+    """Fetch external debt stock and vulnerability metrics from MoSPI eSankhyiki."""
+    db.initialise_schema()
+    try:
+        raw_items = await fetch_mospi_rbi_dataset(
+            indicator_code=27,
+            filters={"limit": "40"},
+        )
+        records = parse_mospi_external_debt(raw_items, lookback_quarters)
+        if not records:
+            raise ValueError("MoSPI returned empty external debt data.")
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        db_rows = [
+            {
+                "period": r.period,
+                "total_debt_usd_bn": r.total_debt_usd_bn,
+                "total_debt_inr_cr": r.total_debt_inr_cr,
+                "general_government_usd_bn": r.general_government_usd_bn,
+                "short_term_debt_usd_bn": r.short_term_debt_usd_bn,
+                "short_term_to_reserves_pct": r.short_term_to_reserves_pct,
+                "debt_to_gdp_pct": r.debt_to_gdp_pct,
+                "citation": r.citation.model_dump_json(),
+                "fetched_at": now_iso,
+            }
+            for r in records
+        ]
+        written = db.upsert_rows("external_debt", db_rows)
+        db.log_fetch("get_external_debt", "live", rows_written=written)
+        return records[:lookback_quarters]
+    except Exception as exc:
+        logger.warning("Live external debt fetch failed: %s. Falling back to cache.", exc)
+        db.log_fetch("get_external_debt", "cache_fallback", error_msg=str(exc))
+        return load_external_debt_from_cache(lookback_quarters)
+
+
+# ── Live Spot FX & Real-time Web Intelligence ─────────────────────────────
+
+async def fetch_live_market_rates() -> LiveMarketRatesRecord:
+    """Fetch live spot FX rates and Brent crude oil benchmark."""
+    return await get_live_rates()
+
+
+async def fetch_realtime_intelligence(
+    query: str = "India foreign exchange reserves, trade deficit and rupee latest",
+    max_results: int = 4,
+) -> RealtimeIntelligenceRecord:
+    """Fetch live macroeconomic web intelligence via Tavily search."""
+    return await get_realtime_news(query=query, max_results=max_results)
+
+
+# ── Multilateral Intelligence (IMF SDMX MCP) ─────────────────────────────
+
+async def fetch_imf_external_outlook(
+    start_year: str = "2022",
+    end_year: str = "2027",
+) -> list[IMFExternalOutlookRecord]:
+    """Fetch multilateral medium-term external outlook from IMF SDMX MCP server."""
+    obs_list = await imf_client.get_india_weo_outlook(start_year, end_year)
+    grouped: dict[str, dict[str, Any]] = {}
+
+    for item in obs_list:
+        p = str(item.get("period") or "").strip()
+        if not p:
+            continue
+        if p not in grouped:
+            grouped[p] = {"period": p, "source": item.get("source", "Source: IMF WEO")}
+        k = str(item.get("series_key") or "")
+        val = safe_float_val(item.get("value"))
+        if "BCA_NGDPD" in k:
+            grouped[p]["current_account_to_gdp_pct"] = round(val, 3) if val is not None else None
+        elif "TX_RPCH" in k:
+            grouped[p]["export_volume_growth_pct"] = round(val, 2) if val is not None else None
+        elif "BCA." in k:
+            grouped[p]["current_account_balance_usd_bn"] = round(val / 1e9, 2) if val is not None else None
+
+    records = []
+    for p in sorted(grouped.keys(), key=parse_period_sort_key, reverse=True):
+        entry = grouped[p]
+        citation = Citation(
+            source_agent="external_sector",
+            source_authority="International Monetary Fund (IMF)",
+            document_title="IMF World Economic Outlook (WEO)",
+            table_reference="imf.sdmx.weo.IND.BCA_NGDPD+TX_RPCH+BCA.A",
+            retrieval_url="https://data.imf.org/",
+            observation_period=str(p),
+            freshness=DataFreshness.LIVE,
+        )
+        records.append(
+            IMFExternalOutlookRecord(
+                period=p,
+                current_account_to_gdp_pct=entry.get("current_account_to_gdp_pct"),
+                current_account_balance_usd_bn=entry.get("current_account_balance_usd_bn"),
+                export_volume_growth_pct=entry.get("export_volume_growth_pct"),
+                citation=citation,
+            )
+        )
+    return records
+
+
+# ── Unified Facade Class ──────────────────────────────────────────────────
+
+class ExternalSectorClient:
+    """Consolidated facade client for external sector operations."""
+
+    def __init__(self, database: Any = None) -> None:
+        self.db = database or db
+
+    async def get_trade_balance(self, lookback_months: int = 24) -> list[TradeBalanceRecord]:
+        return await fetch_trade_balance(lookback_months)
+
+    async def get_balance_of_payments(self, lookback_quarters: int = 8) -> list[BoPRecord]:
+        return await fetch_balance_of_payments(lookback_quarters)
+
+    async def get_forex_reserves(self, lookback_weeks: int = 52) -> list[ForexReservesRecord]:
+        return await fetch_forex_reserves(lookback_weeks)
+
+    async def get_exchange_rates(self, lookback_days: int = 90) -> list[ExchangeRateRecord]:
+        return await fetch_exchange_rates(lookback_days)
+
+    async def get_exchange_rate_snapshot(self, lookback_months: int = 12) -> list[ExchangeRateRecord]:
+        return await fetch_exchange_rates(lookback_days=lookback_months * 30)
+
+    async def get_remittances_and_invisibles(self, lookback_years: int = 5) -> list[RemittancesRecord]:
+        return await fetch_remittances_and_invisibles(lookback_years)
+
+    async def get_external_flows(self, lookback_months: int = 12) -> list[ExternalFlowsRecord]:
+        return await fetch_external_flows(lookback_months)
+
+    async def get_external_debt(self, lookback_quarters: int = 8) -> list[ExternalDebtRecord]:
+        return await fetch_external_debt(lookback_quarters)
+
+    async def get_live_market_rates(self) -> LiveMarketRatesRecord:
+        return await fetch_live_market_rates()
+
+    async def get_realtime_intelligence(self, query: str = "India foreign exchange reserves, trade deficit and rupee latest", max_results: int = 4) -> RealtimeIntelligenceRecord:
+        return await fetch_realtime_intelligence(query=query, max_results=max_results)
+
+    async def get_imf_external_outlook(self, start_year: str = "2022", end_year: str = "2027") -> list[IMFExternalOutlookRecord]:
+        return await fetch_imf_external_outlook(start_year, end_year)
+
+
+external_client = ExternalSectorClient()

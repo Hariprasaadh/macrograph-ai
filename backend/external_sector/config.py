@@ -21,6 +21,22 @@ class ExternalSectorSettings(BaseSettings):
     DBIE_API_BASE: str = Field(default="https://data-api.dbie.rbihub.in/api/tables")
     DBIE_TIMEOUT: int = Field(default=20)
 
+    # MoSPI eSankhyiki MCP Server
+    MOSPI_MCP_URL: str = Field(default="https://mcp.mospi.gov.in/")
+    MOSPI_API_TIMEOUT: int = Field(default=25)
+
+    # Tavily Web Search API
+    TVLY_KEY_1: str | None = Field(
+        default=None,
+        validation_alias="TVLY_KEY_1",
+        description="Tavily API key for real-time web search enrichment.",
+    )
+    TAVILY_API_URL: str = Field(default="https://api.tavily.com/search")
+
+    # IMF SDMX MCP Server (Zero Auth / Public)
+    IMF_MCP_URL: str = Field(default="https://imf.caseyjhand.com/mcp")
+    IMF_API_TIMEOUT: int = Field(default=30)
+
     EXTERNAL_DB_PATH: Path = Field(
         default=Path(__file__).parent / "data" / "external_sector.duckdb",
     )
