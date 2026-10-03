@@ -56,7 +56,8 @@ export const KnowledgeGraphView: React.FC = () => {
         <button
           onClick={fetchCausalData}
           disabled={loading}
-          className="flex items-center gap-2 px-3.5 py-2 rounded-xl glass-panel hover:bg-slate-800 text-xs font-medium text-slate-300 hover:text-white transition-all self-start md:self-auto"
+          aria-label="Refresh transmission traversal"
+          className="touch-44 flex items-center gap-2 px-3.5 py-2 rounded-xl glass-panel hover:bg-slate-800 text-xs font-medium text-slate-300 hover:text-white transition-all self-start md:self-auto disabled:opacity-60"
         >
           <RefreshCw className={`w-3.5 h-3.5 text-cyan-400 ${loading ? 'animate-spin' : ''}`} />
           <span>Refresh Traversal</span>
@@ -72,11 +73,12 @@ export const KnowledgeGraphView: React.FC = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1.5">Source Shock Indicator</label>
+            <label htmlFor="kg-source" className="block text-xs font-medium text-slate-300 mb-1.5">Source Shock Indicator</label>
             <select
+              id="kg-source"
               value={source}
               onChange={(e) => setSource(e.target.value)}
-              className="w-full px-3 py-2 text-xs rounded-xl bg-slate-900 border border-white/10 text-white font-mono focus:outline-none focus:border-cyan-500"
+              className="touch-44 w-full px-3 py-2 text-xs rounded-xl bg-slate-900 border border-white/10 text-white font-mono focus:outline-none focus:border-cyan-500"
             >
               <option value="in.macro.monetary.repo_rate">in.macro.monetary.repo_rate (Policy Repo Rate)</option>
               <option value="in.macro.prices.brent_crude">in.macro.prices.brent_crude (Brent Crude Shock)</option>
@@ -86,11 +88,12 @@ export const KnowledgeGraphView: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1.5">Target Response Indicator</label>
+            <label htmlFor="kg-target" className="block text-xs font-medium text-slate-300 mb-1.5">Target Response Indicator</label>
             <select
+              id="kg-target"
               value={target}
               onChange={(e) => setTarget(e.target.value)}
-              className="w-full px-3 py-2 text-xs rounded-xl bg-slate-900 border border-white/10 text-white font-mono focus:outline-none focus:border-cyan-500"
+              className="touch-44 w-full px-3 py-2 text-xs rounded-xl bg-slate-900 border border-white/10 text-white font-mono focus:outline-none focus:border-cyan-500"
             >
               <option value="in.macro.monetary.bank_credit_growth">in.macro.monetary.bank_credit_growth (Bank Credit)</option>
               <option value="in.macro.real.gdp_growth">in.macro.real.gdp_growth (Real GDP Growth)</option>
@@ -101,9 +104,39 @@ export const KnowledgeGraphView: React.FC = () => {
         </div>
       </div>
 
+      {/* Path visual — UI-only SVG inside animated div wrapper */}
+      <div aria-hidden="true" className="rounded-2xl border border-white/[0.08] bg-gradient-to-r from-brand-600/[0.07] via-cyan-500/[0.05] to-transparent p-4 overflow-hidden">
+        <div className="flex items-center gap-2 overflow-x-auto">
+          {[source, target].map((node, i) => (
+            <React.Fragment key={node}>
+              {i > 0 && (
+                <span className="flex items-center gap-2 shrink-0 px-1">
+                  <span className="hidden sm:block h-px w-10 sm:w-16 bg-gradient-to-r from-brand-400/60 to-cyan-400/60" />
+                  <ArrowRight className="w-4 h-4 text-cyan-300" />
+                </span>
+              )}
+              <span className="shrink-0 px-3.5 py-2 rounded-xl bg-slate-900/80 border border-cyan-500/25 text-[11px] font-mono text-cyan-200 whitespace-nowrap">
+                {node}
+              </span>
+            </React.Fragment>
+          ))}
+          <span className="ml-auto shrink-0 text-[11px] font-mono text-slate-500 hidden md:block">
+            {pathData ? `${pathData.hops ?? '—'} hops • ${pathData.total_lag_months ?? '—'}M lag` : loading ? 'Traversing…' : 'Shortest-path traversal'}
+          </span>
+        </div>
+      </div>
+
+      {loading && !pathData && !impactData && (
+        <div className="p-6 rounded-2xl glass-panel space-y-3" role="status" aria-label="Loading causal transmission">
+          <div className="skeleton h-5 rounded w-1/3" />
+          <div className="skeleton h-3 rounded w-full" />
+          <div className="skeleton h-3 rounded w-11/12" />
+        </div>
+      )}
+
       {/* Path Results */}
       {pathData && (
-        <div className="p-6 rounded-2xl glass-panel border border-cyan-500/20 space-y-4">
+        <div aria-live="polite" className="cv-auto p-4 sm:p-6 rounded-2xl glass-panel border border-cyan-500/20 space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-white/5">
             <div className="flex items-center gap-2">
               <span className="font-semibold text-white text-sm">Discovered Transmission Route</span>

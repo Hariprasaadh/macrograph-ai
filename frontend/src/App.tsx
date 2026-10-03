@@ -87,7 +87,7 @@ export const App: React.FC = () => {
           />
 
           {/* Main View Area */}
-          <main className="flex-1 flex flex-col h-screen overflow-hidden">
+          <main className="flex-1 flex flex-col h-screen h-[100dvh] overflow-hidden min-w-0 bg-background">
             {currentView === 'dashboard' && <DashboardView />}
             {currentView === 'chat' && (
               <ChatWorkspace

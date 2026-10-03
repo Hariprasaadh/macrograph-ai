@@ -52,9 +52,30 @@ export const DashboardView: React.FC = () => {
 
   if (loading && !data) {
     return (
-      <div className="flex-1 p-8 flex flex-col items-center justify-center">
-        <RefreshCw className="w-8 h-8 text-brand-400 animate-spin mb-4" />
-        <p className="text-sm text-slate-400 font-mono">Querying DuckDB & RBI DBIE Sector Mirrors...</p>
+      <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6 bg-background" role="status" aria-label="Loading dashboard telemetry">
+        <div className="p-6 rounded-3xl mesh-card border border-white/10 flex items-center gap-4">
+          <RefreshCw className="w-6 h-6 text-brand-400 animate-spin shrink-0" aria-hidden="true" />
+          <p className="text-sm text-slate-300 font-mono">Querying DuckDB &amp; RBI DBIE Sector Mirrors…</p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" aria-hidden="true">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="p-5 rounded-2xl mesh-card space-y-3">
+              <div className="skeleton h-3 rounded w-2/3" />
+              <div className="skeleton h-8 rounded w-1/2" />
+              <div className="skeleton h-3 rounded w-full" />
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8" aria-hidden="true">
+          {[0, 1].map((i) => (
+            <div key={i} className="p-6 rounded-2xl glass-panel space-y-3">
+              <div className="skeleton h-5 rounded w-1/2" />
+              <div className="skeleton h-3 rounded w-full" />
+              <div className="skeleton h-3 rounded w-11/12" />
+              <div className="skeleton h-3 rounded w-10/12" />
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
@@ -66,142 +87,150 @@ export const DashboardView: React.FC = () => {
   const deposits = finance?.deposits_cd_ratio;
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-8 bg-background">
-      {/* Top Banner / Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-white/5">
+    <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-8 bg-background selection:bg-brand-500/30 selection:text-cyan-200">
+      {/* Top banner / header */}
+      <div className="p-6 rounded-3xl mesh-card border border-white/10 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xl">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className="px-3 py-1 rounded-full text-[11px] font-mono font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 flex items-center gap-1.5 shadow-sm">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               Live Connected Sector: Finance & Banking
             </span>
-            <span className="text-xs text-slate-500">•</span>
-            <span className="text-xs text-slate-400 font-mono">DuckDB Store ID: `finance_sector.duckdb`</span>
+            <span className="text-xs text-slate-600">•</span>
+            <span className="text-xs text-slate-400 font-mono">Canonical Store: <code className="text-cyan-300">finance_sector.duckdb</code></span>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
-            Indian Macroeconomic Intelligence Dashboard
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+            Indian Macroeconomic Intelligence Telemetry
           </h1>
           <p className="text-xs sm:text-sm text-slate-400 mt-1">
-            Empirical banking data ingested from official RBI DBIE mirrors and verified against the anti-hallucination standard.
+            Empirical banking and financial indicators ingested from official RBI DBIE mirrors and verified against the anti-hallucination standard.
           </p>
         </div>
 
         <button
           onClick={() => fetchDashboardData()}
           disabled={loading}
-          className="flex items-center gap-2 px-3.5 py-2 rounded-xl glass-panel hover:bg-slate-800 text-xs font-medium text-slate-300 hover:text-white transition-all self-start md:self-auto"
+          aria-label="Sync live mirrors"
+          className="touch-44 flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900/90 border border-white/10 hover:border-cyan-400/40 text-xs font-mono font-semibold text-slate-300 hover:text-white transition-all shadow-md self-start md:self-auto group disabled:opacity-60"
         >
-          <RefreshCw className={`w-3.5 h-3.5 text-brand-400 ${loading ? 'animate-spin' : ''}`} />
-          <span>Refresh Data</span>
+          <RefreshCw className={`w-3.5 h-3.5 text-cyan-400 group-hover:rotate-180 transition-transform ${loading ? 'animate-spin' : ''}`} />
+          <span>Sync Live Mirrors</span>
         </button>
       </div>
 
       {error && (
-        <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-center gap-2.5">
-          <AlertCircle className="w-4 h-4 shrink-0" />
-          <span>{error}</span>
+        <div role="alert" className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex flex-col sm:flex-row sm:items-center gap-3">
+          <span className="flex items-center gap-2.5 min-w-0">
+            <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+            <span className="break-words">{error}</span>
+          </span>
+          <button onClick={() => fetchDashboardData()} className="touch-44 shrink-0 px-4 py-2 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-200 font-semibold hover:bg-rose-500/25 transition-colors sm:ml-auto">
+            Retry sync
+          </button>
         </div>
       )}
 
-      {/* Top KPI Metric Cards (Real Finance Sector Data) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Top KPI metric cards */}
+      <div className="cv-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Credit Growth */}
-        <div className="p-5 rounded-2xl glass-panel relative overflow-hidden group">
-          <div className="flex items-center justify-between text-xs text-slate-400">
+        <div className="p-5 rounded-2xl mesh-card relative overflow-hidden group">
+          <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
             <span>Non-Food Bank Credit</span>
-            <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
               RBI r539
             </span>
           </div>
-          <div className="text-2xl font-bold text-white mt-2">
+          <div className="text-2xl font-bold text-white mt-2 font-mono">
             {formatLakhCr(credit?.non_food_credit_cr)}
           </div>
           <div className="flex items-center gap-2 mt-2">
-            <span className="text-xs font-semibold text-emerald-400 flex items-center">
+            <span className="text-xs font-semibold text-emerald-400 flex items-center gap-0.5">
               <ArrowUpRight className="w-3.5 h-3.5" />
               {credit?.non_food_credit_yoy_pct != null ? `+${credit.non_food_credit_yoy_pct}% YoY` : '—'}
             </span>
-            <span className="text-[11px] text-slate-500">Period: {credit?.period ?? '—'}</span>
+            <span className="text-[11px] text-slate-500 font-mono">Period: {credit?.period ?? '—'}</span>
           </div>
-          <div className="mt-3 text-[11px] text-slate-400 truncate">
-            Gross Credit: {formatLakhCr(credit?.gross_credit_cr)}
+          <div className="mt-3 text-[11px] text-slate-400 truncate border-t border-white/5 pt-2">
+            Gross Credit: <strong className="text-slate-300 font-mono">{formatLakhCr(credit?.gross_credit_cr)}</strong>
           </div>
         </div>
 
         {/* Asset Quality / GNPA */}
-        <div className="p-5 rounded-2xl glass-panel relative overflow-hidden group">
-          <div className="flex items-center justify-between text-xs text-slate-400">
+        <div className="p-5 rounded-2xl mesh-card relative overflow-hidden group">
+          <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
             <span>Gross NPA (SCBs)</span>
-            <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
               RBI r330
             </span>
           </div>
-          <div className="text-2xl font-bold text-white mt-2">
+          <div className="text-2xl font-bold text-cyan-300 mt-2 font-mono">
             {formatPct(asset?.gross_npa_pct)}
           </div>
           <div className="flex items-center gap-2 mt-2">
-            <span className="text-xs font-semibold text-cyan-400">
+            <span className="text-xs font-semibold text-cyan-400 font-mono">
               Net NPA: {formatPct(asset?.net_npa_pct)}
             </span>
-            <span className="text-[11px] text-slate-500">PCR: {formatPct(asset?.provision_coverage_ratio_pct)}</span>
+            <span className="text-[11px] text-slate-500 font-mono">PCR: {formatPct(asset?.provision_coverage_ratio_pct)}</span>
           </div>
-          <div className="mt-3 text-[11px] text-slate-400 truncate">
-            CRAR: {formatPct(asset?.crar_pct)} (CET-1: {formatPct(asset?.cet1_pct)})
+          <div className="mt-3 text-[11px] text-slate-400 truncate border-t border-white/5 pt-2">
+            CRAR: <strong className="text-slate-300 font-mono">{formatPct(asset?.crar_pct)}</strong> (CET-1: {formatPct(asset?.cet1_pct)})
           </div>
         </div>
 
         {/* Rate Structure / WALR */}
-        <div className="p-5 rounded-2xl glass-panel relative overflow-hidden group">
-          <div className="flex items-center justify-between text-xs text-slate-400">
+        <div className="p-5 rounded-2xl mesh-card relative overflow-hidden group">
+          <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
             <span>Fresh Lending Rate (WALR)</span>
-            <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
               RBI r531
             </span>
           </div>
-          <div className="text-2xl font-bold text-white mt-2">
+          <div className="text-2xl font-bold text-indigo-300 mt-2 font-mono">
             {formatPct(rates?.walr_fresh_pct)}
           </div>
           <div className="flex items-center gap-2 mt-2">
-            <span className="text-xs font-semibold text-indigo-400">
+            <span className="text-xs font-semibold text-indigo-400 font-mono">
               MCLR: {formatPct(rates?.mclr_1yr_median_pct)}
             </span>
-            <span className="text-[11px] text-slate-500">WADTDR: {formatPct(rates?.wadtdr_fresh_pct)}</span>
+            <span className="text-[11px] text-slate-500 font-mono">WADTDR: {formatPct(rates?.wadtdr_fresh_pct)}</span>
           </div>
-          <div className="mt-3 text-[11px] text-slate-400 truncate">
-            Outstanding WALR: {formatPct(rates?.walr_outstanding_pct)}
+          <div className="mt-3 text-[11px] text-slate-400 truncate border-t border-white/5 pt-2">
+            Outstanding WALR: <strong className="text-slate-300 font-mono">{formatPct(rates?.walr_outstanding_pct)}</strong>
           </div>
         </div>
 
         {/* Deposits & CD Ratio */}
-        <div className="p-5 rounded-2xl glass-panel relative overflow-hidden group">
-          <div className="flex items-center justify-between text-xs text-slate-400">
+        <div className="p-5 rounded-2xl mesh-card relative overflow-hidden group">
+          <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
             <span>Aggregate Deposits</span>
-            <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20">
               RBI r689
             </span>
           </div>
-          <div className="text-2xl font-bold text-white mt-2">
+          <div className="text-2xl font-bold text-white mt-2 font-mono">
             {formatLakhCr(deposits?.aggregate_deposits_cr)}
           </div>
           <div className="flex items-center gap-2 mt-2">
-            <span className="text-xs font-semibold text-amber-400 flex items-center">
+            <span className="text-xs font-semibold text-amber-400 flex items-center gap-0.5 font-mono">
               <ArrowUpRight className="w-3.5 h-3.5" />
               {deposits?.deposits_yoy_pct != null ? `+${deposits.deposits_yoy_pct}% YoY` : '—'}
             </span>
-            <span className="text-[11px] text-slate-500">CD: {formatPct(deposits?.cd_ratio_pct)}</span>
+            <span className="text-[11px] text-slate-500 font-mono">CD: {formatPct(deposits?.cd_ratio_pct)}</span>
           </div>
-          <div className="mt-3 text-[11px] text-slate-400 truncate">
-            CASA Ratio: {formatPct(deposits?.casa_ratio_pct)}
+          <div className="mt-3 text-[11px] text-slate-400 truncate border-t border-white/5 pt-2">
+            CASA Ratio: <strong className="text-slate-300 font-mono">{formatPct(deposits?.casa_ratio_pct)}</strong>
           </div>
         </div>
       </div>
 
+
       {/* Main Analytical Visuals Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div className="cv-auto grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
         {/* Visual 1: Sectoral Deployment of Bank Credit */}
         <div className="p-6 rounded-2xl glass-panel border border-white/5 space-y-5">
           <div className="flex items-center justify-between">
             <div>
+              <p className="mesh-eyebrow text-emerald-400/80 mb-1.5">_01/ Credit deployment_</p>
               <h3 className="text-base font-semibold text-white flex items-center gap-2">
                 <PieChart className="w-4 h-4 text-emerald-400" />
                 <span>Sectoral Deployment of Non-Food Credit</span>
@@ -310,6 +339,7 @@ export const DashboardView: React.FC = () => {
         <div className="p-6 rounded-2xl glass-panel border border-white/5 space-y-5">
           <div className="flex items-center justify-between">
             <div>
+              <p className="mesh-eyebrow text-cyan-400/80 mb-1.5">_02/ Asset quality_</p>
               <h3 className="text-base font-semibold text-white flex items-center gap-2">
                 <ShieldCheck className="w-4 h-4 text-cyan-400" />
                 <span>Scheduled Commercial Banks (SCBs) Asset Quality</span>
@@ -378,6 +408,7 @@ export const DashboardView: React.FC = () => {
         <div className="p-6 rounded-2xl glass-panel border border-white/5 space-y-4">
           <div className="flex items-center justify-between">
             <div>
+              <p className="mesh-eyebrow text-indigo-300/80 mb-1.5">_03/ Rate transmission_</p>
               <h3 className="text-base font-semibold text-white flex items-center gap-2">
                 <Percent className="w-4 h-4 text-indigo-400" />
                 <span>Policy Rate Transmission & Spreads</span>
@@ -419,6 +450,7 @@ export const DashboardView: React.FC = () => {
         <div className="p-6 rounded-2xl glass-panel border border-white/5 space-y-4">
           <div className="flex items-center justify-between">
             <div>
+              <p className="mesh-eyebrow text-amber-300/80 mb-1.5">_04/ Deposits & liquidity_</p>
               <h3 className="text-base font-semibold text-white flex items-center gap-2">
                 <Landmark className="w-4 h-4 text-amber-400" />
                 <span>Deposit Mobilisation & CD Ratio</span>

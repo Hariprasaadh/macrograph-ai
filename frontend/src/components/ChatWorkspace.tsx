@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, memo } from 'react';
 import {
   Send,
   Sparkles,
@@ -121,6 +121,40 @@ const AGENT_SHORT_NAMES: Record<string, string> = {
   capital_market_sector: 'Capital',
   monetary_sector: 'Monetary',
 };
+
+// UI-only memoized chips to avoid re-render churn during streaming (no data logic)
+const PromptChip = memo(function PromptChip({ text, disabled, tone, onPick }: { text: string; disabled: boolean; tone: 'emerald' | 'default'; onPick: (t: string) => void }) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={() => onPick(text)}
+      title={text}
+      className={`touch-44 shrink-0 px-3 py-2 rounded-lg glass-panel text-slate-300 hover:text-white text-xs border transition-all text-left truncate max-w-[260px] ${
+        tone === 'emerald' ? 'hover:bg-emerald-500/10 border-emerald-500/20' : 'hover:bg-slate-800 border-white/5'
+      } disabled:opacity-50`}
+    >
+      {text}
+    </button>
+  );
+});
+
+const AgentToggleButton = memo(function AgentToggleButton({ label, selected, tone, onClick, title }: { label: string; selected: boolean; tone: 'brand' | 'emerald'; onClick: () => void; title: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-pressed={selected}
+      className={`touch-44 px-3 py-2 rounded-lg font-medium transition-all flex items-center gap-1.5 whitespace-nowrap text-xs ${
+        selected ? (tone === 'brand' ? 'bg-brand-600 text-white shadow-sm' : 'bg-emerald-600 text-white shadow-sm') : 'text-slate-400 hover:text-white'
+      }`}
+    >
+      <span className={`w-1.5 h-1.5 rounded-full ${tone === 'brand' ? 'bg-brand-400' : 'bg-emerald-400'}`} aria-hidden="true" />
+      <span>{label}</span>
+    </button>
+  );
+});
 
 const SUGGESTED_PROMPTS: Record<string, { text: string }[]> = {
   orchestrator: [
@@ -482,46 +516,31 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           </div>
         </div>
 
-        {/* Quick Agent Mode Toggle */}
-        <div className="flex items-center gap-2 bg-slate-900/80 p-1 rounded-xl border border-white/10 text-xs max-w-[48%] overflow-x-auto">
+        {/* Quick Agent Mode Toggle — segmented switcher look, same callback */}
+        <div role="group" aria-label="Switch active agent" className="flex items-center gap-1 bg-slate-950/90 p-1.5 rounded-2xl border border-white/10 text-xs max-w-[54%] overflow-x-auto shadow-inner">
           {SECTOR_AGENTS.filter((agent) => agent.status === 'active').map((agent) => {
             const isSelected = selectedAgentId === agent.id;
-            const isFinanceAgent = agent.id === 'finance_sector';
             const isOrchestratorAgent = agent.id === 'orchestrator';
-
             return (
-              <button
+              <AgentToggleButton
                 key={agent.id}
-                onClick={() => onSelectAgent(agent.id)}
+                label={AGENT_SHORT_NAMES[agent.id] || agent.name}
                 title={agent.name}
-                className={`px-3 py-1.5 rounded-lg font-medium transition-all flex items-center gap-1.5 whitespace-nowrap ${
-                  isSelected
-                    ? isFinanceAgent
-                      ? 'bg-emerald-600 text-white shadow-sm'
-                      : isOrchestratorAgent
-                      ? 'bg-brand-600 text-white shadow-sm'
-                      : 'bg-emerald-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <span
-                  className={`w-1.5 h-1.5 rounded-full ${
-                    isOrchestratorAgent ? 'bg-brand-400' : 'bg-emerald-400'
-                  }`}
-                />
-                <span>{AGENT_SHORT_NAMES[agent.id] || agent.name}</span>
-              </button>
+                selected={isSelected}
+                tone={isOrchestratorAgent ? 'brand' : 'emerald'}
+                onClick={() => onSelectAgent(agent.id)}
+              />
             );
           })}
         </div>
       </div>
 
       {/* Messages Scroll Area */}
-      <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
+      <div role="log" aria-live="polite" aria-label="Research conversation" className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
         {currentMessages.map((message) => (
           <div
             key={message.id}
-            className={`flex gap-3 max-w-4xl mx-auto ${
+            className={`cv-auto flex gap-3 max-w-4xl mx-auto ${
               message.role === 'user' ? 'justify-end' : 'justify-start'
             }`}
           >
@@ -634,15 +653,23 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 </div>
               )}
 
-              {/* Message Body (Markdown rendered) */}
-              <div
-                className={`prose prose-invert prose-custom max-w-none text-sm text-slate-200 leading-relaxed ${
-                  selectedAgentId === 'capital_market_sector' ? 'capital-market-response' : ''
-                }`}
-                dangerouslySetInnerHTML={{
-                  __html: formatMarkdown(message.content, selectedAgentId === 'capital_market_sector'),
-                }}
-              />
+              {/* Message Body (Markdown rendered — same parser, UI skeleton when empty) */}
+              {message.role === 'assistant' && message.isStreaming && !message.content ? (
+                <div className="space-y-2.5 py-1" aria-label="Generating response">
+                  <div className="skeleton h-4 rounded-lg w-11/12" />
+                  <div className="skeleton h-4 rounded-lg w-9/12" />
+                  <div className="skeleton h-4 rounded-lg w-10/12" />
+                </div>
+              ) : (
+                <div
+                  className={`prose prose-invert prose-custom max-w-none text-sm text-slate-200 leading-relaxed ${
+                    selectedAgentId === 'capital_market_sector' ? 'capital-market-response' : ''
+                  }`}
+                  dangerouslySetInnerHTML={{
+                    __html: formatMarkdown(message.content, selectedAgentId === 'capital_market_sector'),
+                  }}
+                />
+              )}
 
               {isNewSector && message.dataFreshness && (
                 <div className="mt-4 flex flex-wrap items-center gap-2 text-[10px] font-mono">
@@ -808,25 +835,14 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       </div>
 
       {/* Suggested Prompts Carousel */}
-      <div className="px-6 py-2 border-t border-white/5 bg-slate-950/40">
-        <div className="max-w-4xl mx-auto flex items-center gap-2 overflow-x-auto pb-1 text-xs">
+      <div className="px-4 sm:px-6 py-2 border-t border-white/5 bg-slate-950/40">
+        <div aria-label="Suggested prompts" className="max-w-4xl mx-auto flex items-center gap-2 overflow-x-auto pb-1 text-xs">
           <span className="text-[11px] font-mono text-slate-500 shrink-0 flex items-center gap-1">
             <Sparkles className={`w-3 h-3 ${isNewSector ? 'text-emerald-400' : 'text-brand-400'}`} />
             Quick Prompts:
           </span>
           {currentPrompts.map((prompt, idx) => (
-            <button
-              key={idx}
-              disabled={isGenerating}
-              onClick={() => handleSendMessage(prompt.text)}
-              className={`shrink-0 px-3 py-1.5 rounded-lg glass-panel text-slate-300 hover:text-white text-xs border transition-all text-left truncate max-w-xs ${
-                isNewSector
-                  ? 'hover:bg-emerald-500/10 border-emerald-500/20'
-                  : 'hover:bg-slate-800 border-white/5'
-              }`}
-            >
-              {prompt.text}
-            </button>
+            <PromptChip key={idx} text={prompt.text} disabled={isGenerating} tone={isNewSector ? 'emerald' : 'default'} onPick={(t) => handleSendMessage(t)} />
           ))}
         </div>
       </div>
@@ -840,11 +856,16 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           }}
           className="max-w-4xl mx-auto relative flex items-center"
         >
+          <label htmlFor="chat-input" className="sr-only">
+            Ask {isFinance ? 'Finance and Banking Sector Agent' : isOrchestrator ? 'Macrograph Orchestrator' : selectedAgent.name}
+          </label>
           <input
+            id="chat-input"
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             disabled={isGenerating}
+            autoComplete="off"
             placeholder={
               isFinance
                 ? 'Ask Finance Agent strictly about Scheduled Commercial Banks, NPAs, credit growth, rates...'
@@ -861,8 +882,9 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 
           <button
             type="submit"
+            aria-label="Send message"
             disabled={!input.trim() || isGenerating}
-            className={`absolute right-2 px-4 py-2 rounded-lg text-white text-xs font-semibold shadow-glow-brand transition-all flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed ${
+            className={`touch-44 absolute right-2 px-4 rounded-lg text-white text-xs font-semibold shadow-glow-brand transition-all flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed ${
               isFinance
                 ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-glow-emerald'
                 : isOrchestrator

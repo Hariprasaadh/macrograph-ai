@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, ShieldCheck, KeyRound, ExternalLink, AlertCircle } from 'lucide-react';
 import { GoogleLogin } from '@react-oauth/google';
 import { UserProfile } from '../types';
@@ -38,6 +38,21 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
 }) => {
   const [inputClientId, setInputClientId] = useState(clientId || '');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    closeRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isOpen, onClose]);
+
+  useEffect(() => {
+    setInputClientId(clientId || '');
+  }, [clientId, isOpen]);
 
   if (!isOpen) return null;
 
@@ -78,8 +93,8 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
   const isConfigured = Boolean(clientId && clientId.trim() !== '');
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
-      <div className="relative w-full max-w-md bg-surface-elevated/95 border border-border rounded-2xl p-6 shadow-2xl glass-card-glow overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div role="dialog" aria-modal="true" aria-labelledby="google-auth-title" className="relative w-full max-w-md bg-surface-elevated/95 border border-border rounded-2xl p-6 shadow-2xl glass-card-glow overflow-hidden">
         {/* Ambient background glow */}
         <div className="absolute -top-24 -right-24 w-48 h-48 bg-brand-500/20 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute -bottom-24 -left-24 w-48 h-48 bg-accent-cyan/15 rounded-full blur-3xl pointer-events-none" />
@@ -108,13 +123,15 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
               </svg>
             </div>
             <div>
-              <h3 className="font-semibold text-white text-base">Google Identity Services</h3>
+              <h3 id="google-auth-title" className="font-semibold text-white text-base">Google Identity Services</h3>
               <p className="text-xs text-slate-400">Official OAuth 2.0 Authentication</p>
             </div>
           </div>
           <button
+            ref={closeRef}
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
+            aria-label="Close sign-in dialog"
+            className="touch-44 p-2.5 text-slate-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors flex items-center justify-center"
           >
             <X className="w-5 h-5" />
           </button>
@@ -123,7 +140,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
         {/* Modal Content */}
         <div className="mt-5 space-y-4">
           {errorMessage && (
-            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-center gap-2">
+            <div role="alert" className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
               <span>{errorMessage}</span>
             </div>
@@ -178,23 +195,25 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
 
               <form onSubmit={handleSaveId} className="space-y-3">
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                  <label htmlFor="google-client-id" className="block text-xs font-medium text-slate-300 mb-1">
                     Google OAuth Web Client ID
                   </label>
                   <input
+                    id="google-client-id"
                     type="text"
                     required
+                    autoComplete="off"
                     placeholder="e.g. 123456789-abcdef.apps.googleusercontent.com"
                     value={inputClientId}
                     onChange={(e) => setInputClientId(e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-xl bg-slate-900 border border-white/10 text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 transition-colors"
+                    className="touch-44 w-full px-3 py-2 text-xs font-mono rounded-xl bg-slate-900 border border-white/10 text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 transition-colors"
                   />
                 </div>
 
                 <button
                   type="submit"
                   disabled={!inputClientId.trim()}
-                  className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white font-medium text-xs shadow-glow-brand transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="touch-44 w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white font-medium text-xs shadow-glow-brand transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <span>Connect Google OAuth Client</span>
                 </button>
