@@ -1,6 +1,4 @@
-"""Numeric-first Real Sector intelligence module."""
+"""Real Sector & Industrial Output package for Macrograph AI."""
+from real_sector.mcp_server import mcp_server
 
-from .agents.executor import RealSectorAgentExecutor
-from .services.pipeline import RealSectorPipeline
-
-__all__ = ["RealSectorPipeline", "RealSectorAgentExecutor"]
+__all__ = ["mcp_server"]

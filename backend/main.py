@@ -47,6 +47,15 @@ app.add_middleware(
 app.mount("/real-sector", real_app)
 app.mount("/finance-sector", finance_app)
 
+# Ensure Real Sector DuckDB is initialised + seeded at import time
+# (sub-app lifespans don't fire when mounted via app.mount)
+try:
+    from real_sector import database as _real_db
+    _real_db.initialise_schema(seed_baseline=True)
+    logging.getLogger(__name__).info("Real sector DuckDB initialised.")
+except Exception as _e:
+    logging.getLogger(__name__).warning("Real sector DB init skipped: %s", _e)
+
 # Dynamically mount other sectors if available
 _optional_sectors = [
     ("capital_market_sector.api.app", "app", "/capital-markets"),
@@ -88,6 +97,27 @@ class ScenarioSimulateRequest(BaseModel):
 # -----------------------------------------------------------------------------
 # Core API Routes
 # -----------------------------------------------------------------------------
+@app.get("/", tags=["System"])
+def root() -> Dict[str, Any]:
+    return {
+        "platform": "Macrograph AI — Indian Macroeconomic Intelligence Platform",
+        "status": "online",
+        "version": "1.0.0",
+        "documentation": "/docs",
+        "health": "/health",
+        "sectors": {
+            "real_sector": "/real-sector",
+            "finance_sector": "/finance-sector",
+            "capital_markets": "/capital-markets",
+            "labour_sector": "/labour-sector",
+            "external_sector": "/external-sector",
+            "monetary_sector": "/monetary-sector",
+        },
+        "chat_endpoint": "/api/chat",
+        "analyze_endpoint": "/api/analyze",
+    }
+
+
 @app.get("/health", tags=["System"])
 def health_check() -> Dict[str, Any]:
     return {
@@ -202,6 +232,11 @@ from monetary_sector.agent import (
     monetary_agent_node,
 )
 from monetary_sector.config import monetary_settings
+from real_sector.agent import (
+    _SERVICE_KEYWORDS as _REAL_SERVICE_KEYWORDS,
+    real_agent_node,
+)
+from real_sector.config import real_settings
 
 
 class ChatMessageRequest(BaseModel):
@@ -210,7 +245,7 @@ class ChatMessageRequest(BaseModel):
         default="orchestrator",
         description=(
             "'orchestrator', 'finance_sector', 'external_sector', 'labour_sector', "
-            "'capital_market_sector', or 'monetary_sector'"
+            "'capital_market_sector', 'monetary_sector', or 'real_sector'"
         ),
     )
     scenario_shock: Optional[Dict[str, Any]] = None
@@ -356,6 +391,45 @@ _DIRECT_SECTOR_CHAT: dict[str, dict[str, Any]] = {
                 ("Real policy rate", "real_policy_rate_pct", "%"),
                 ("M3 growth", "m3_growth_pct", "%"),
                 ("System liquidity status", "system_liquidity_status", ""),
+            ]),
+        ],
+    },
+    "real_sector": {
+        "node": real_agent_node,
+        "service_keywords": _REAL_SERVICE_KEYWORDS,
+        "api_key": real_settings.REAL_LLM_KEY,
+        "model": real_settings.REAL_LLM_MODEL,
+        "name": "Real Sector & Industrial Output",
+        "data_key": "real_sector_data",
+        "analysis_key": "real_sector_analysis",
+        "citations_key": "real_sector_citations",
+        "errors_key": "real_sector_errors",
+        "freshness_key": "real_sector_freshness",
+        "sections": [
+            ("iip_sectoral", "IIP Sectoral Growth", [
+                ("General IIP YoY", "general_iip_yoy_pct", "%"),
+                ("Manufacturing YoY", "manufacturing_yoy_pct", "%"),
+                ("Mining YoY", "mining_yoy_pct", "%"),
+                ("Electricity YoY", "electricity_yoy_pct", "%"),
+            ]),
+            ("iip_use_based", "IIP Use-Based Growth", [
+                ("Capital Goods YoY", "capital_goods_yoy_pct", "%"),
+                ("Intermediate Goods YoY", "intermediate_goods_yoy_pct", "%"),
+                ("Consumer Durables YoY", "consumer_durables_yoy_pct", "%"),
+                ("Primary Goods YoY", "primary_goods_yoy_pct", "%"),
+            ]),
+            ("core_industries", "Eight Core Industries (ICI)", [
+                ("Overall ICI YoY", "overall_ici_yoy_pct", "%"),
+                ("Steel YoY", "steel_yoy_pct", "%"),
+                ("Cement YoY", "cement_yoy_pct", "%"),
+                ("Coal YoY", "coal_yoy_pct", "%"),
+            ]),
+            ("manufacturing_gva", "Manufacturing GVA", [
+                ("Real GVA YoY", "manufacturing_gva_real_yoy_pct", "%"),
+                ("Nominal GVA (₹ Cr)", "manufacturing_gva_cr", " Cr"),
+            ]),
+            ("obicus_capacity", "Capacity Utilisation (OBICUS)", [
+                ("Capacity Utilisation Ratio", "capacity_utilisation_pct", "%"),
             ]),
         ],
     },

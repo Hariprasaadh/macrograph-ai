@@ -1,95 +1,135 @@
-"""FastAPI surface for Real Sector Agent — A2A Protocol and FastMCP Tools integration."""
+"""Real Sector FastAPI Sub-Application."""
 from __future__ import annotations
 
-from typing import Any, Dict
-from fastapi import FastAPI, HTTPException, Request
-from sse_starlette.sse import EventSourceResponse
+from contextlib import asynccontextmanager
+from typing import Any
+from fastapi import FastAPI, HTTPException, Query
 
-from core.protocols.a2a import (
-    AgentCard,
-    TaskManager,
-    TaskRequest,
-    TaskResponse,
-    TaskState,
-    task_event_stream,
+from real_sector import client
+from real_sector import database as db
+from real_sector.client import RealSectorDataUnavailableError
+from real_sector.models import (
+    CoreIndustriesResponse,
+    DataFreshness,
+    IIPSectoralResponse,
+    IIPUseBasedResponse,
+    ManufacturingGVAResponse,
+    MarketContextResponse,
+    OBICUSResponse,
+    RealSectorJoinedResponse,
 )
-from ..agents.executor import RealSectorAgentExecutor
-from ..agents.response_models import SectorResponse
-from ..agents.tools import SectorToolInput, SectorToolRegistry
-from ..services.pipeline import RealSectorPipeline
-from ..mcp_server import mcp_server
+import logging
+
+logger = logging.getLogger(__name__)
 
 
-def create_app(pipeline: RealSectorPipeline | None = None) -> FastAPI:
-    application = FastAPI(
-        title="Macrograph AI — Real Sector Agent (A2A & FastMCP)",
-        version="1.0.0",
-        description="A2A Protocol & FastMCP Compliant Real Sector Macroeconomic Intelligence Agent"
-    )
-    active_pipeline = pipeline or RealSectorPipeline()
-    registry = SectorToolRegistry(active_pipeline)
-    executor = RealSectorAgentExecutor(active_pipeline)
-    task_manager = TaskManager()
-
-    @application.get("/health")
-    def health() -> dict[str, object]:
-        return {"status": "ok", **active_pipeline.status()}
-
-    # --- A2A Protocol Discovery ---
-
-    @application.get("/.well-known/agent.json", response_model=AgentCard)
-    @application.get("/real-sector/agent-card", response_model=AgentCard)
-    def agent_card(request: Request) -> AgentCard:
-        base_url = str(request.base_url).rstrip("/")
-        return executor.get_agent_card(base_url=f"{base_url}/real-sector")
-
-    # --- A2A Protocol Task Endpoints ---
-
-    @application.post("/a2a/tasks", response_model=TaskResponse)
-    async def create_task(task_req: TaskRequest) -> TaskResponse:
-        return await task_manager.run_task(executor, task_req, background=False)
-
-    @application.get("/a2a/tasks/{task_id}", response_model=TaskResponse)
-    def get_task(task_id: str) -> TaskResponse:
-        task = task_manager.get_task(task_id)
-        if not task:
-            raise HTTPException(status_code=404, detail=f"Task ID '{task_id}' not found.")
-        return task
-
-    @application.get("/a2a/tasks/{task_id}/events")
-    async def task_events(task_id: str) -> EventSourceResponse:
-        task = task_manager.get_task(task_id)
-        if not task:
-            raise HTTPException(status_code=404, detail=f"Task ID '{task_id}' not found.")
-        event_queue = task_manager.get_event_queue(task_id)
-        return EventSourceResponse(task_event_stream(event_queue, task_id))
-
-    @application.post("/a2a/tasks/{task_id}/cancel")
-    async def cancel_task(task_id: str) -> Dict[str, Any]:
-        success = await task_manager.cancel_task(task_id, executor)
-        if not success:
-            raise HTTPException(status_code=404, detail=f"Task ID '{task_id}' not found.")
-        return {"task_id": task_id, "status": TaskState.CANCELLED, "success": True}
-
-    # --- FastMCP Tool Endpoints ---
-
-    @application.get("/real-sector/tools")
-    def tool_definitions() -> list[dict[str, object]]:
-        return registry.openai_functions()
-
-    @application.post("/real-sector/tools/{tool_name}", response_model=SectorResponse)
-    def invoke_tool(tool_name: str, payload: SectorToolInput) -> SectorResponse:
-        try:
-            return registry.invoke(tool_name, payload.model_dump())
-        except KeyError as error:
-            raise HTTPException(status_code=404, detail=str(error)) from error
-
-    @application.post("/real-sector/refresh")
-    def refresh() -> dict[str, object]:
-        tables = active_pipeline.refresh()
-        return {"status": "refreshed", "tables": {name: len(table) for name, table in tables.items()}}
-
-    return application
+@asynccontextmanager
+async def _lifespan(application: FastAPI):
+    """Initialise schema and seed baseline data on startup."""
+    try:
+        db.initialise_schema(seed_baseline=True)
+        logger.info("Real sector DuckDB initialised and seeded.")
+    except Exception as exc:
+        logger.error("Real sector DB init failed: %s", exc)
+    yield
 
 
-app = create_app()
+app = FastAPI(
+    title="Real Sector & Industrial Output API",
+    description="HTTP endpoints for MoSPI IIP, Core Industries (ICI), GVA, and OBICUS data.",
+    version="1.0.0",
+    lifespan=_lifespan,
+)
+
+
+def create_app() -> FastAPI:
+    return app
+
+
+@app.get("/health", tags=["System"])
+async def health() -> dict[str, str]:
+    return {"status": "healthy", "sector": "real_sector", "version": "1.0.0"}
+
+
+@app.get("/metadata", tags=["Registry"])
+async def metadata() -> dict[str, Any]:
+    return {
+        "sector": "real_sector",
+        "version": "1.0.0",
+        "authorities": ["MoSPI", "DPIIT", "RBI", "NSE"],
+        "owns": [
+            "iip_general", "iip_manufacturing", "iip_mining", "iip_electricity",
+            "iip_capital_goods", "iip_consumer_durables", "core_steel", "core_cement",
+            "manufacturing_gva", "capacity_utilisation",
+        ],
+    }
+
+
+@app.get("/iip-sectoral", response_model=IIPSectoralResponse, tags=["Real Sector"])
+async def iip_sectoral(lookback_months: int = Query(default=12, ge=1, le=60)) -> IIPSectoralResponse:
+    try:
+        records = await client.fetch_iip_sectoral(lookback_months)
+        freshness = records[0].citation.freshness if records else DataFreshness.UNAVAILABLE
+        return IIPSectoralResponse(status=freshness, total_records=len(records), records=records)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+
+@app.get("/iip-use-based", response_model=IIPUseBasedResponse, tags=["Real Sector"])
+async def iip_use_based(lookback_months: int = Query(default=12, ge=1, le=60)) -> IIPUseBasedResponse:
+    try:
+        records = await client.fetch_iip_use_based(lookback_months)
+        freshness = records[0].citation.freshness if records else DataFreshness.UNAVAILABLE
+        return IIPUseBasedResponse(status=freshness, total_records=len(records), records=records)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+
+@app.get("/core-industries", response_model=CoreIndustriesResponse, tags=["Real Sector"])
+async def core_industries(lookback_months: int = Query(default=12, ge=1, le=60)) -> CoreIndustriesResponse:
+    try:
+        records = await client.fetch_core_industries(lookback_months)
+        freshness = records[0].citation.freshness if records else DataFreshness.UNAVAILABLE
+        return CoreIndustriesResponse(status=freshness, total_records=len(records), records=records)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+
+@app.get("/manufacturing-gva", response_model=ManufacturingGVAResponse, tags=["Real Sector"])
+async def manufacturing_gva(lookback_quarters: int = Query(default=8, ge=1, le=32)) -> ManufacturingGVAResponse:
+    try:
+        records = await client.fetch_manufacturing_gva(lookback_quarters)
+        freshness = records[0].citation.freshness if records else DataFreshness.UNAVAILABLE
+        return ManufacturingGVAResponse(status=freshness, total_records=len(records), records=records)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+
+@app.get("/obicus", response_model=OBICUSResponse, tags=["Real Sector"])
+async def obicus(lookback_quarters: int = Query(default=8, ge=1, le=32)) -> OBICUSResponse:
+    try:
+        records = await client.fetch_obicus_capacity(lookback_quarters)
+        freshness = records[0].citation.freshness if records else DataFreshness.UNAVAILABLE
+        return OBICUSResponse(status=freshness, total_records=len(records), records=records)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+
+@app.get("/joined-diagnostic", response_model=RealSectorJoinedResponse, tags=["Real Sector"])
+async def joined_diagnostic() -> RealSectorJoinedResponse:
+    try:
+        records = await client.fetch_joined_real_indicators()
+        freshness = records[0].citation.freshness if records else DataFreshness.UNAVAILABLE
+        return RealSectorJoinedResponse(status=freshness, total_records=len(records), records=records)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+
+@app.get("/market-context", response_model=MarketContextResponse, tags=["Real Sector"])
+async def market_context() -> MarketContextResponse:
+    try:
+        records = await client.fetch_infrastructure_market_context()
+        freshness = records[0].citation.freshness if records else DataFreshness.UNAVAILABLE
+        return MarketContextResponse(status=freshness, total_records=len(records), records=records)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc))

@@ -13,8 +13,18 @@ from groq import AsyncGroq
 def _resolve_groq_api_key(preferred_key: str | None) -> str | None:
     if preferred_key:
         return preferred_key
-    if os.getenv("GROQ_API_KEY"):
-        return os.environ["GROQ_API_KEY"]
+    for key_name in (
+        "GROQ_API_KEY",
+        "AGR_REAL_KEY",
+        "ORCH_KEY",
+        "FIN_FIS_KEY",
+        "CAP_MON_KEY",
+        "PRIC_LAB_KEY",
+        "SERV_EXT_KEY",
+    ):
+        val = os.getenv(key_name)
+        if val and val.strip():
+            return val.strip()
 
     from core.config import settings
     if settings.GROQ_API_KEY:

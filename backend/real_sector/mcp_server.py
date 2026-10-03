@@ -1,48 +1,212 @@
-"""FastMCP Tool Server for Real Sector Macroeconomic Intelligence."""
+"""Real Sector FastMCP Server.
+
+Exposes FastMCP tools for:
+  - MoSPI IIP Sectoral (Manufacturing, Mining, Electricity)
+  - MoSPI IIP Use-Based (Capital goods, Intermediate goods, Consumer durables)
+  - DPIIT Eight Core Industries (Steel, Cement, Electricity, Coal, Refinery)
+  - RBI DBIE Manufacturing GVA & OBICUS Capacity Utilization
+  - DuckDB JOIN multi-indicator view with trend analytics
+  - Infrastructure & Industrial listed equity market context
+"""
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+import logging
+from typing import Annotated
+
 from fastmcp import FastMCP
-from .services.pipeline import RealSectorPipeline
-from .agents.tools import SectorToolRegistry
+from pydantic import Field
 
-# Initialize FastMCP Server for Real Sector
+from real_sector import database as db
+from real_sector import client
+from real_sector.client import RealSectorDataUnavailableError
+from real_sector.models import (
+    CoreIndustriesResponse,
+    DataFreshness,
+    IIPSectoralResponse,
+    IIPUseBasedResponse,
+    ManufacturingGVAResponse,
+    MarketContextResponse,
+    OBICUSResponse,
+    RealSectorJoinedResponse,
+    UnavailableResponse,
+)
+
+logger = logging.getLogger(__name__)
+
 mcp_server = FastMCP(
-    name="Real Sector Macroeconomic Tools",
-    instructions="Provides standard tools for National Income, IIP, Prices/Inflation, and Agriculture."
+    name="Real Sector & Industrial Output MCP Server",
+    instructions=(
+        "Provides official MoSPI IIP, DPIIT Eight Core Industries (ICI), RBI DBIE GVA/OBICUS, "
+        "and industrial market context. All observations include mandatory provenance citations."
+    ),
+    version="1.0.0",
 )
+mcp = mcp_server
+server = mcp_server
 
-_pipeline = RealSectorPipeline()
-_registry = SectorToolRegistry(_pipeline)
+db.initialise_schema()
 
 
 @mcp_server.tool(
-    name="get_national_income_snapshot",
-    description="Fetches quarterly Real GDP (constant prices), Nominal GDP, and Gross Fixed Capital Formation (GFCF)."
+    name="get_iip_sectoral",
+    title="MoSPI IIP Sectoral Breakdown",
+    description=(
+        "Fetches Index of Industrial Production (IIP) broken down by Mining, Manufacturing, "
+        "and Electricity. Source: MoSPI Quick Estimates of IIP (2011-12=100)."
+    ),
+    tags={"real_sector", "iip", "manufacturing", "mining", "electricity", "mospi"},
 )
-def get_national_income_snapshot(start_date: Optional[str] = None, end_date: Optional[str] = None) -> Dict[str, Any]:
-    return _registry.invoke("get_national_income_snapshot", {"start_date": start_date, "end_date": end_date}).model_dump()
+async def get_iip_sectoral(
+    lookback_months: Annotated[int, Field(default=12, ge=1, le=60)] = 12,
+) -> IIPSectoralResponse | UnavailableResponse:
+    try:
+        records = await client.fetch_iip_sectoral(lookback_months)
+        freshness = records[0].citation.freshness if records else DataFreshness.UNAVAILABLE
+        return IIPSectoralResponse(status=freshness, records=records, total_records=len(records))
+    except Exception as exc:
+        return UnavailableResponse(tool="get_iip_sectoral", reason=str(exc))
 
 
 @mcp_server.tool(
-    name="get_industry_snapshot",
-    description="Fetches Index of Industrial Production (IIP) use-based indicators and manufacturing output."
+    name="get_iip_use_based",
+    title="MoSPI IIP Use-Based Classification",
+    description=(
+        "Fetches Use-Based IIP series: Primary goods, Capital goods, Intermediate goods, "
+        "Infrastructure/construction goods, Consumer durables, and Consumer non-durables. "
+        "Source: MoSPI (2011-12=100)."
+    ),
+    tags={"real_sector", "iip", "use_based", "capital_goods", "consumer_durables", "mospi"},
 )
-def get_industry_snapshot(start_date: Optional[str] = None, end_date: Optional[str] = None) -> Dict[str, Any]:
-    return _registry.invoke("get_industry_snapshot", {"start_date": start_date, "end_date": end_date}).model_dump()
+async def get_iip_use_based(
+    lookback_months: Annotated[int, Field(default=12, ge=1, le=60)] = 12,
+) -> IIPUseBasedResponse | UnavailableResponse:
+    try:
+        records = await client.fetch_iip_use_based(lookback_months)
+        freshness = records[0].citation.freshness if records else DataFreshness.UNAVAILABLE
+        return IIPUseBasedResponse(status=freshness, records=records, total_records=len(records))
+    except Exception as exc:
+        return UnavailableResponse(tool="get_iip_use_based", reason=str(exc))
 
 
 @mcp_server.tool(
-    name="get_prices_snapshot",
-    description="Fetches headline CPI, food CPI, core CPI, Wholesale Price Index (WPI), and House Price Index."
+    name="get_core_industries",
+    title="DPIIT Index of Eight Core Industries (ICI)",
+    description=(
+        "Fetches output and YoY growth for the 8 Core Industries: Coal, Crude Oil, Natural Gas, "
+        "Refinery Products, Fertilizers, Steel, Cement, and Electricity. "
+        "Source: DPIIT / Office of Economic Adviser."
+    ),
+    tags={"real_sector", "core_industries", "steel", "cement", "coal", "ici", "dpiit"},
 )
-def get_prices_snapshot(start_date: Optional[str] = None, end_date: Optional[str] = None) -> Dict[str, Any]:
-    return _registry.invoke("get_prices_snapshot", {"start_date": start_date, "end_date": end_date}).model_dump()
+async def get_core_industries(
+    lookback_months: Annotated[int, Field(default=12, ge=1, le=60)] = 12,
+) -> CoreIndustriesResponse | UnavailableResponse:
+    try:
+        records = await client.fetch_core_industries(lookback_months)
+        freshness = records[0].citation.freshness if records else DataFreshness.UNAVAILABLE
+        return CoreIndustriesResponse(status=freshness, records=records, total_records=len(records))
+    except Exception as exc:
+        return UnavailableResponse(tool="get_core_industries", reason=str(exc))
 
 
 @mcp_server.tool(
-    name="get_agriculture_snapshot",
-    description="Fetches foodgrain production volume, crop yield, and Minimum Support Prices (MSP)."
+    name="get_manufacturing_gva",
+    title="Manufacturing GVA Growth & Share",
+    description="Fetches Real and Nominal Manufacturing Gross Value Added (GVA) from NSO / RBI DBIE.",
+    tags={"real_sector", "gva", "manufacturing", "rbi", "nso"},
 )
-def get_agriculture_snapshot(start_date: Optional[str] = None, end_date: Optional[str] = None) -> Dict[str, Any]:
-    return _registry.invoke("get_agriculture_snapshot", {"start_date": start_date, "end_date": end_date}).model_dump()
+async def get_manufacturing_gva(
+    lookback_quarters: Annotated[int, Field(default=8, ge=1, le=32)] = 8,
+) -> ManufacturingGVAResponse | UnavailableResponse:
+    try:
+        records = await client.fetch_manufacturing_gva(lookback_quarters)
+        freshness = records[0].citation.freshness if records else DataFreshness.UNAVAILABLE
+        return ManufacturingGVAResponse(status=freshness, records=records, total_records=len(records))
+    except Exception as exc:
+        return UnavailableResponse(tool="get_manufacturing_gva", reason=str(exc))
+
+
+@mcp_server.tool(
+    name="get_obicus_capacity",
+    title="RBI OBICUS Capacity Utilisation",
+    description="Fetches Manufacturing Capacity Utilisation Ratio (%) from RBI OBICUS survey rounds.",
+    tags={"real_sector", "obicus", "capacity_utilisation", "rbi"},
+)
+async def get_obicus_capacity(
+    lookback_quarters: Annotated[int, Field(default=8, ge=1, le=32)] = 8,
+) -> OBICUSResponse | UnavailableResponse:
+    try:
+        records = await client.fetch_obicus_capacity(lookback_quarters)
+        freshness = records[0].citation.freshness if records else DataFreshness.UNAVAILABLE
+        return OBICUSResponse(status=freshness, records=records, total_records=len(records))
+    except Exception as exc:
+        return UnavailableResponse(tool="get_obicus_capacity", reason=str(exc))
+
+
+@mcp_server.tool(
+    name="get_joined_real_sector_indicators",
+    title="DuckDB Joined Multi-Indicator Real Sector View",
+    description=(
+        "Executes a DuckDB multi-table JOIN linking IIP Sectoral, Use-Based, Core Industries, "
+        "GVA, and OBICUS by period with automated Step 6 trend direction analytics."
+    ),
+    tags={"real_sector", "joined_view", "duckdb", "trend_analytics", "composite"},
+)
+async def get_joined_real_sector_indicators() -> RealSectorJoinedResponse | UnavailableResponse:
+    try:
+        records = await client.fetch_joined_real_indicators()
+        freshness = records[0].citation.freshness if records else DataFreshness.UNAVAILABLE
+        return RealSectorJoinedResponse(status=freshness, records=records, total_records=len(records))
+    except Exception as exc:
+        return UnavailableResponse(tool="get_joined_real_sector_indicators", reason=str(exc))
+
+
+@mcp_server.tool(
+    name="get_infrastructure_market_context",
+    title="Infrastructure & Industrial Listed Equity Context",
+    description="Fetches market returns and valuations for Steel, Cement, and Capital Goods listed bellwethers.",
+    tags={"real_sector", "market_context", "steel_stocks", "cement_stocks", "capital_goods"},
+)
+async def get_infrastructure_market_context() -> MarketContextResponse | UnavailableResponse:
+    try:
+        records = await client.fetch_infrastructure_market_context()
+        freshness = records[0].citation.freshness if records else DataFreshness.UNAVAILABLE
+        return MarketContextResponse(status=freshness, records=records, total_records=len(records))
+    except Exception as exc:
+        return UnavailableResponse(tool="get_infrastructure_market_context", reason=str(exc))
+
+
+@mcp.resource("real://catalog")
+def get_catalog() -> str:
+    """Catalog of official Real Sector data tables and provenance mappings."""
+    import json
+    return json.dumps(
+        {
+            "sector": "real_sector",
+            "authorities": [
+                "Ministry of Statistics and Programme Implementation (MoSPI)",
+                "DPIIT / Office of Economic Adviser",
+                "Reserve Bank of India (RBI)",
+                "National Stock Exchange of India (NSE)",
+            ],
+            "pillars": {
+                "iip_sectoral": "Quick Estimates of Index of Industrial Production (Mining, Manufacturing, Electricity)",
+                "iip_use_based": "IIP Use-Based Classification (Primary, Capital, Intermediate, Infra, Durables)",
+                "eight_core_industries": "DPIIT ICI (Coal, Crude, Gas, Refinery, Fertilizer, Steel, Cement, Electricity)",
+                "gva_manufacturing": "Quarterly Estimates of GVA at Basic Prices (Manufacturing)",
+                "obicus": "RBI Order Books, Inventories and Capacity Utilisation Survey",
+                "market_context": "Infrastructure, Steel, Cement & Capital Goods Equity Bellwethers",
+            },
+        },
+        indent=2,
+    )
+
+
+@mcp.prompt()
+def analyze_industrial_and_manufacturing_trends() -> str:
+    """Prompt template for industrial output and manufacturing diagnostic analysis."""
+    return (
+        "Conduct a comprehensive diagnostic of India's real sector and industrial momentum. "
+        "Fetch IIP Manufacturing, Capital Goods, Core Steel, Cement, Manufacturing GVA, and OBICUS capacity utilisation. "
+        "Formulate an evidence-grounded synthesis following the structured pattern with trend directions and market context."
+    )
