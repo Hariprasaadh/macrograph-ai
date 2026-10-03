@@ -1,23 +1,55 @@
-from fastapi import FastAPI, HTTPException, Request
-from core.protocols.a2a import AgentCard, TaskManager, TaskRequest, TaskResponse
-from ..agents.executor import LabourEmploymentAgentExecutor
-from ..agents.tools import LabourToolRegistry
-from ..clients.labour_data_client import LabourDataClient
+"""Labour Sector FastAPI Sub-Application."""
+from __future__ import annotations
 
-def create_app(client=None):
-    app = FastAPI(title="Macrograph AI — Labour & Employment Sector", version="1.0.0")
-    active = client or LabourDataClient(); executor = LabourEmploymentAgentExecutor(active); registry = LabourToolRegistry(active); manager = TaskManager()
-    @app.get("/health")
-    def health(): return {"status": "ok", "service": "Labour & Employment Sector Agent"}
-    @app.get("/.well-known/agent.json", response_model=AgentCard)
-    def card(request: Request): return executor.get_agent_card(str(request.base_url).rstrip("/") + "/labour-sector")
-    @app.post("/a2a/tasks", response_model=TaskResponse)
-    async def task(req: TaskRequest): return await manager.run_task(executor, req)
-    @app.get("/tools")
-    def tools(): return registry.openai_functions()
-    @app.post("/tools/{name}")
-    def invoke(name: str, payload: dict):
-        try: return registry.invoke(name, payload)
-        except KeyError as exc: raise HTTPException(404, str(exc)) from exc
-    return app
-app = create_app()
+from typing import Any
+
+from fastapi import FastAPI, HTTPException, Query
+
+from labour_sector import client
+from labour_sector.client import LabourDataUnavailableError
+from labour_sector.models import (
+    DataFreshness,
+    LabourForceParticipationResponse,
+    UnemploymentResponse,
+)
+
+app = FastAPI(
+    title="Labour & Employment Sector API",
+    description="HTTP endpoints for Labour & Employment data.",
+    version="1.0.0",
+)
+
+
+@app.get("/health", tags=["System"])
+async def health() -> dict[str, str]:
+    return {"status": "healthy", "sector": "labour_sector", "version": "1.0.0"}
+
+
+@app.get("/metadata", tags=["Registry"])
+async def metadata() -> dict[str, Any]:
+    return {
+        "sector": "labour_sector",
+        "version": "1.0.0",
+        "authority": "Ministry of Statistics and Programme Implementation (MoSPI)",
+        "owns": ["plfs_unemployment_rate", "plfs_lfpr", "plfs_wpr", "epfo_payroll_additions"],
+    }
+
+
+@app.get("/unemployment", response_model=UnemploymentResponse, tags=["Labour"])
+async def unemployment() -> UnemploymentResponse:
+    try:
+        records = await client.fetch_unemployment_snapshot()
+        freshness = records[0].citation.freshness if records else DataFreshness.UNAVAILABLE
+        return UnemploymentResponse(status=freshness, total_records=len(records), records=records)
+    except LabourDataUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+
+@app.get("/lfpr", response_model=LabourForceParticipationResponse, tags=["Labour"])
+async def lfpr() -> LabourForceParticipationResponse:
+    try:
+        records = await client.fetch_labour_force_participation()
+        freshness = records[0].citation.freshness if records else DataFreshness.UNAVAILABLE
+        return LabourForceParticipationResponse(status=freshness, total_records=len(records), records=records)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
