@@ -13,6 +13,7 @@ import {
   Coins,
   Globe,
   Users,
+  Activity,
   type LucideIcon,
 } from 'lucide-react';
 import { ChatMessage, StreamStep } from '../types';
@@ -71,6 +72,8 @@ const SECTOR_WORKSPACE_DESCRIPTIONS: Record<string, string> = {
     'Uses a configured NSE NIFTY request and locally stored market observations.',
   monetary_sector:
     'Uses the official RBIH DBIE MCP snapshot for policy rates, money stock, and RBI liquidity operations; upstream data reflects the deployment’s last scrape, not real-time values.',
+  real_sector:
+    'Fetches MoSPI IIP (sectoral & use-based), DPIIT Eight Core Industries index, and RBI DBIE manufacturing GVA & OBICUS capacity utilisation data with per-observation provenance.',
 };
 
 const SECTOR_WELCOME_MESSAGES: Record<string, string> = Object.fromEntries(
@@ -111,6 +114,7 @@ const AGENT_ICONS: Record<string, LucideIcon> = {
   labour_sector: Users,
   capital_market_sector: TrendingUp,
   monetary_sector: Coins,
+  real_sector: Activity,
 };
 
 const AGENT_SHORT_NAMES: Record<string, string> = {
@@ -120,6 +124,7 @@ const AGENT_SHORT_NAMES: Record<string, string> = {
   labour_sector: 'Labour',
   capital_market_sector: 'Capital',
   monetary_sector: 'Monetary',
+  real_sector: 'Real Sector',
 };
 
 const SUGGESTED_PROMPTS: Record<string, { text: string }[]> = {
@@ -170,6 +175,12 @@ const SUGGESTED_PROMPTS: Record<string, { text: string }[]> = {
     { text: 'What policy-rate observations are available, including repo, SDF, and MSF?' },
     { text: 'Summarize the latest available money-supply observations for M1, M2, and M3.' },
     { text: 'What system-liquidity and monetary-stance observations are available?' },
+  ],
+  real_sector: [
+    { text: 'What is the latest IIP growth rate for Manufacturing, Mining, and Electricity in India?' },
+    { text: 'Summarize the Eight Core Industries (ICI) index — steel, cement, and coal YoY growth.' },
+    { text: 'What are the latest use-based IIP figures for Capital Goods and Consumer Durables?' },
+    { text: 'What is the current OBICUS capacity utilisation for the manufacturing sector?' },
   ],
 };
 

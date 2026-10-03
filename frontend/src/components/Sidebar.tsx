@@ -125,6 +125,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             'capital_market_sector',
             'labour_sector',
             'monetary_sector',
+            'real_sector',
           ].includes(agent.id);
           const isSelectable = agent.status === 'active';
 
