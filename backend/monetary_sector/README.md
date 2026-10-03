@@ -43,17 +43,27 @@ It answers four fundamental macroeconomic questions:
 
 ## 3. Official Indian Data Sources (RBI DBIE)
 
-All empirical data is retrieved from official **Reserve Bank of India (RBI)** publications via the **Reserve Bank Innovation Hub (RBIH) DBIE mirror** (`https://dev.dbie.rbihub.in` and `https://dbie.rbihub.in/data/`).
+All empirical data is retrieved through the official **RBIH DBIE MCP** package:
+[`@reserve-bank-innovation-hub/dbie-mcp`](https://github.com/Reserve-Bank-Innovation-Hub/dbie.rbihub.in/tree/main/mcp).
+The package is launched over stdio with Node.js 20+ and `npx`; it is not an HTTP MCP endpoint.
+Its documented tools are `search_tables`, `list_tables`, `get_series`, and `get_table`.
 
-### Exact RBI DBIE Table Keys & JSON Endpoints
+The implementation discovers tables through the MCP catalogue and uses `get_table` for these verified published tables:
 
-| Indicator | Official DBIE Table Reference | Frequency | Format |
+| Application function | Verified DBIE table title | Published path returned by MCP | Observed response data |
 | :--- | :--- | :--- | :--- |
-| **Policy Rates & Reserve Ratios** | `financial_sector.r531_key_rates` | Policy cycle / Daily | Database Table API |
-| **Reserve Money (M0)** | `financial_sector.r543_reserve_money` | Weekly / Monthly | Database Table API |
-| **Money Stock (M1, M2, M3)** | `financial_sector.r541_money_stock_measures`<br>`financial_sector.r542_sources_of_money_stock` | Fortnightly / Monthly | Database Table API |
-| **Daily Liquidity Operations** | `https://dbie.rbihub.in/data/liquidity-operations.json` | Daily | Curated Static JSON Mirror |
-| **Call Money Rates (WACR)** | `https://dbie.rbihub.in/data/daily-call-money-rates.json` | Daily | Curated Static JSON Mirror |
+| `get_policy_rates` | Select Economic Indicators (RBI Bulletin Table 1) | `/banking/select-economic-indicators` | Monthly rows with policy repo, reverse repo, SDF, MSF, bank rate, CRR, and SLR fields |
+| `get_money_supply` | Money Stock Measures (RBI Bulletin Table 6) | `/banking/money-stock-measures` | Dated rows with a nested `values` object; unit is Rupees crores |
+| `get_system_liquidity` | Liquidity Operations by RBI (RBI Bulletin Table 3) | `/banking/liquidity-operations` | Dated operation components; unit is Rupees Crores |
+| `get_monetary_stance_snapshot` | Derived only from sourced policy-rate observations | Uses the policy-rate table citation | Unsupported stance, real-rate, M3-growth, and net-liquidity fields remain unavailable |
+
+`get_table` returns JSON in an MCP text content item, including `source`, `note`, and a `data` object. The monetary client retains the returned source note, source base, table path, units, frequency when published, observation period, and raw row values in citation metadata.
+
+The source note explicitly states that values reflect the DBIE deployment's **last scrape**, not real-time data. The client labels them `upstream_snapshot`; it does not call them live.
+
+### Runtime requirement
+
+Node.js 20+ and `npx` must be available to the backend runtime. The client invokes the pinned official MCP package version `0.1.0`. If it cannot start or return a valid response, the client logs the failure and falls back to validated DuckDB rows. No direct DBIE HTTP endpoint or non-official source is used.
 
 ---
 
@@ -74,10 +84,12 @@ Exposed by `monetary_sector/mcp_server.py`:
 
 1. `get_policy_rates(lookback_months: int = 12)`
    - Returns Repo rate, SDF, MSF, Bank rate, CRR, and SLR.
-2. `get_money_supply_aggregates(lookback_months: int = 12)`
-   - Returns M0, M1, M3, Currency in Circulation, and YoY growth rates.
-3. `get_systemic_liquidity(lookback_days: int = 30)`
-   - Returns daily net LAF liquidity position (surplus/deficit ₹ Cr) and Weighted Average Call Money Rate (WACR).
+2. `get_money_supply(lookback_months: int = 12)`
+   - Returns reported money-stock components and aggregates (M1, M2, M3). Unreported values and growth rates remain null.
+3. `get_system_liquidity(lookback_months: int = 6)`
+   - Returns reported RBI operation components. It does not derive a net LAF amount or surplus/deficit label.
+4. `get_monetary_stance_snapshot()`
+   - Returns a sourced policy-rate snapshot. An official stance label, real policy rate, M3 growth, and net liquidity status are not inferred.
 
 ---
 
@@ -91,13 +103,12 @@ Exposed by `monetary_sector/mcp_server.py`:
 {
   "source_agent": "monetary_sector",
   "source_authority": "Reserve Bank of India (RBI)",
-  "document_title": "RBI DBIE - Key Rates & Policy Corridor",
-  "table_reference": "financial_sector.r531_key_rates",
-  "indicator_id": "in.macro.monetary.policy_repo_rate",
-  "observation_period": "2026-08",
-  "value": 6.50,
-  "unit": "%",
-  "url": "https://dev.dbie.rbihub.in/statistics?table=financial_sector.r531_key_rates"
+  "document_title": "Select Economic Indicators (Monthly), RBI Bulletin Table 1",
+  "table_reference": "/banking/select-economic-indicators",
+  "observation_period": "Jul 2026",
+  "freshness": "upstream_snapshot",
+  "source_base_url": "https://dbie.rbihub.in",
+  "source_note": "Data is from https://dbie.rbihub.in and reflects its last scrape of the RBI DBIE portal"
 }
 ```
 
