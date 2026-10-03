@@ -93,18 +93,23 @@ To avoid duplicate tools or conflicting numbers across sector agents:
 
 ---
 
-## 5. FastMCP Tool Interface (4 Clean Tools)
+## 5. FastMCP Tool Interface (6 Live Tools)
 
 Exposed by `finance_sector/mcp_server.py`:
 
 1. `get_bank_credit_growth(lookback_months: int = 12)`
-   - Returns non-food credit growth and broad sectoral deployment (Agri, Industry, Services, Retail).
+   - Returns non-food credit growth and broad sectoral deployment (Agri, Industry, Services, Retail) from RBI DBIE.
 2. `get_asset_quality(bank_group: str = "ALL_SCB", lookback_quarters: int = 8)`
-   - Returns GNPA ratio, NNPA ratio, and CRAR across bank groups.
-3. `get_lending_and_deposit_rates(lookback_months: int = 12)`
-   - Returns WALR (fresh and outstanding), 1-yr MCLR, WADTDR, and lending spread over repo.
+   - Returns GNPA ratio, NNPA ratio, and CRAR across bank groups from RBI DBIE.
+3. `get_lending_and_deposit_rates(lookback_months: int = 12, repo_rate_from_a2a: float | None = None)`
+   - Returns WALR (fresh and outstanding), 1-yr MCLR, WADTDR, and lending spread over repo from RBI DBIE.
 4. `get_deposits_and_cd_ratio(lookback_months: int = 12)`
-   - Returns aggregate deposit growth, CASA ratio, and Credit-to-Deposit (CD) ratio.
+   - Returns aggregate deposit growth, CASA ratio, and Credit-to-Deposit (CD) ratio from RBI DBIE.
+5. `get_banking_market_indicators()`
+   - Returns live market valuation, current price, day return, P/E, P/B, and 52-week range for Nifty Bank (^NSEBANK) and major commercial banks (SBI, HDFC Bank, ICICI Bank, Kotak, Axis) via Yahoo Finance (`yfinance`).
+6. `get_realtime_finance_news(query: str, max_results: int = 5)`
+   - Enriches analysis with real-time news, RBI regulatory notifications, and MPC policy commentary using Tavily AI Search (`TVLY_KEY_1`).
+
 
 ---
 

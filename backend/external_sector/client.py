@@ -29,7 +29,7 @@ from external_sector.dbie_client import (
     fetch_raw_forex,
     fetch_raw_trade,
 )
-from external_sector.imf_client import imf_client
+from external_sector.imf_client import fetch_imf_external_outlook, imf_client
 from external_sector.market_client import fetch_live_market_rates as get_live_rates
 from external_sector.models import (
     BoPRecord,
@@ -103,6 +103,20 @@ async def fetch_balance_of_payments(lookback_quarters: int = 8) -> list[BoPRecor
     """Fetch quarterly BoP snapshots (CAD, Capital Account, Services surplus)."""
     db.initialise_schema()
     return load_bop_from_cache(lookback_quarters)
+
+
+async def fetch_imf_bop(lookback_quarters: int = 8) -> list[BoPRecord]:
+    """Fetch live quarterly BoP from IMF SDMX MCP server, falling back to cache."""
+    db.initialise_schema()
+    try:
+        live_records = await imf_client.get_india_bop_quarterly(lookback_quarters)
+        if live_records:
+            return live_records
+    except Exception as exc:
+        logger.warning("Live IMF BoP fetch failed: %s. Falling back to cache.", exc)
+    return load_bop_from_cache(lookback_quarters)
+
+
 
 
 # ── Pillar 3: Forex Reserves & External Liquidity ─────────────────────────
@@ -285,55 +299,6 @@ async def fetch_realtime_intelligence(
     return await get_realtime_news(query=query, max_results=max_results)
 
 
-# ── Multilateral Intelligence (IMF SDMX MCP) ─────────────────────────────
-
-async def fetch_imf_external_outlook(
-    start_year: str = "2022",
-    end_year: str = "2027",
-) -> list[IMFExternalOutlookRecord]:
-    """Fetch multilateral medium-term external outlook from IMF SDMX MCP server."""
-    obs_list = await imf_client.get_india_weo_outlook(start_year, end_year)
-    grouped: dict[str, dict[str, Any]] = {}
-
-    for item in obs_list:
-        p = str(item.get("period") or "").strip()
-        if not p:
-            continue
-        if p not in grouped:
-            grouped[p] = {"period": p, "source": item.get("source", "Source: IMF WEO")}
-        k = str(item.get("series_key") or "")
-        val = safe_float_val(item.get("value"))
-        if "BCA_NGDPD" in k:
-            grouped[p]["current_account_to_gdp_pct"] = round(val, 3) if val is not None else None
-        elif "TX_RPCH" in k:
-            grouped[p]["export_volume_growth_pct"] = round(val, 2) if val is not None else None
-        elif "BCA." in k:
-            grouped[p]["current_account_balance_usd_bn"] = round(val / 1e9, 2) if val is not None else None
-
-    records = []
-    for p in sorted(grouped.keys(), key=parse_period_sort_key, reverse=True):
-        entry = grouped[p]
-        citation = Citation(
-            source_agent="external_sector",
-            source_authority="International Monetary Fund (IMF)",
-            document_title="IMF World Economic Outlook (WEO)",
-            table_reference="imf.sdmx.weo.IND.BCA_NGDPD+TX_RPCH+BCA.A",
-            retrieval_url="https://data.imf.org/",
-            observation_period=str(p),
-            freshness=DataFreshness.LIVE,
-        )
-        records.append(
-            IMFExternalOutlookRecord(
-                period=p,
-                current_account_to_gdp_pct=entry.get("current_account_to_gdp_pct"),
-                current_account_balance_usd_bn=entry.get("current_account_balance_usd_bn"),
-                export_volume_growth_pct=entry.get("export_volume_growth_pct"),
-                citation=citation,
-            )
-        )
-    return records
-
-
 # ── Unified Facade Class ──────────────────────────────────────────────────
 
 class ExternalSectorClient:
@@ -374,6 +339,10 @@ class ExternalSectorClient:
 
     async def get_imf_external_outlook(self, start_year: str = "2022", end_year: str = "2027") -> list[IMFExternalOutlookRecord]:
         return await fetch_imf_external_outlook(start_year, end_year)
+
+    async def get_imf_bop(self, lookback_quarters: int = 8) -> list[BoPRecord]:
+        return await fetch_imf_bop(lookback_quarters)
+
 
 
 external_client = ExternalSectorClient()

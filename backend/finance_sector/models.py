@@ -274,3 +274,56 @@ class UnavailableResponse(BaseModel):
         description="UTC timestamp of the last successful data fetch, if any.",
     )
     error_detail: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Pillar 5 — Banking Market Equities & Indices (yfinance)
+# ---------------------------------------------------------------------------
+
+class BankEquityMetric(BaseModel):
+    """Live/recent equity quote and fundamental metrics for an Indian bank or index."""
+
+    symbol: str = Field(..., description="Ticker symbol (e.g. ^NSEBANK, SBIN.NS, HDFCBANK.NS).")
+    name: str = Field(..., description="Entity name.")
+    current_price: float | None = Field(None, description="Last traded / current price in INR.")
+    change_pct: float | None = Field(None, description="Day price change percentage (%).")
+    pe_ratio: float | None = Field(None, description="Trailing Price-to-Earnings ratio.")
+    pb_ratio: float | None = Field(None, description="Price-to-Book ratio.")
+    market_cap_cr: float | None = Field(None, description="Market Capitalization in ₹ Crore.")
+    high_52w: float | None = Field(None, description="52-week high in INR.")
+    low_52w: float | None = Field(None, description="52-week low in INR.")
+    citation: Citation
+
+
+class BankingMarketResponse(BaseModel):
+    """MCP tool response — get_banking_market_indicators."""
+
+    status: DataFreshness
+    benchmark_index: BankEquityMetric | None = None
+    top_banks: list[BankEquityMetric] = Field(default_factory=list)
+    total_records: int = Field(default=0)
+    error_message: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Pillar 6 — Real-Time Financial News & Intelligence (Tavily)
+# ---------------------------------------------------------------------------
+
+class TavilyNewsItem(BaseModel):
+    """Real-time financial news article or regulatory announcement."""
+
+    title: str = Field(..., description="Headline of the article or notification.")
+    url: str = Field(..., description="Canonical source URL.")
+    content: str = Field(..., description="Extracted content snippet or summary.")
+    published_date: str | None = Field(None, description="Published date if available.")
+    source: str = Field(default="Tavily AI Search", description="Information broker.")
+
+
+class FinanceNewsResponse(BaseModel):
+    """MCP tool response — get_realtime_finance_news."""
+
+    status: DataFreshness
+    query: str = Field(..., description="Search query executed.")
+    news_items: list[TavilyNewsItem] = Field(default_factory=list)
+    total_results: int = Field(default=0)
+    error_message: str | None = None

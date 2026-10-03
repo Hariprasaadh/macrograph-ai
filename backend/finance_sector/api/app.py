@@ -12,12 +12,18 @@ from pydantic import BaseModel, Field
 
 from finance_sector import client
 from finance_sector.client import FinanceDataUnavailableError
+from finance_sector.market_client import (
+    fetch_banking_market_indicators,
+    fetch_realtime_finance_news,
+)
 from finance_sector.models import (
     AssetQualityResponse,
     BankCreditGrowthResponse,
     BankGroup,
+    BankingMarketResponse,
     DataFreshness,
     DepositsAndCDResponse,
+    FinanceNewsResponse,
     LendingRatesResponse,
 )
 
@@ -207,3 +213,22 @@ async def deposits_cd_ratio(
         )
     except FinanceDataUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
+
+
+@app.get("/market-indicators", response_model=BankingMarketResponse, tags=["Finance"])
+async def market_indicators() -> BankingMarketResponse:
+    """Nifty Bank index (^NSEBANK) and major bank equity valuations from yfinance."""
+    return await fetch_banking_market_indicators()
+
+
+@app.get("/realtime-news", response_model=FinanceNewsResponse, tags=["Finance"])
+async def realtime_news(
+    query: str = Query(
+        default="RBI monetary policy commercial bank credit growth India",
+        description="Search query for live banking news",
+    ),
+    max_results: int = Query(default=5, ge=1, le=10),
+) -> FinanceNewsResponse:
+    """Real-time financial and banking news from Tavily AI Search."""
+    return await fetch_realtime_finance_news(query=query, max_results=max_results)
+

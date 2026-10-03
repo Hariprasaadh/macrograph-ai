@@ -682,4 +682,126 @@ class TestFinanceAgentNode:
         assert hasattr(output, "citations")
 
 
+# ---------------------------------------------------------------------------
+# Test Suite 6: Banking Market Indicators (yfinance) & Tavily News
+# ---------------------------------------------------------------------------
+
+class TestBankingMarketAndNews:
+    """Tests for yfinance equity data and Tavily search enrichment."""
+
+    @pytest.mark.asyncio
+    async def test_banking_market_indicators_model_and_tool(self):
+        from finance_sector.market_client import fetch_banking_market_indicators
+        from finance_sector.mcp_server import get_banking_market_indicators
+        from finance_sector.models import BankingMarketResponse, BankEquityMetric
+
+        fake_metric = BankEquityMetric(
+            symbol="SBIN.NS",
+            name="State Bank of India",
+            current_price=850.0,
+            change_pct=1.25,
+            pe_ratio=10.5,
+            pb_ratio=1.4,
+            market_cap_cr=750000.0,
+            high_52w=900.0,
+            low_52w=600.0,
+            citation=Citation(
+                source_authority="NSE / Yahoo Finance",
+                document_title="SBIN Quote",
+                table_reference="yfinance:SBIN.NS",
+                retrieval_url="https://finance.yahoo.com/quote/SBIN.NS",
+                observation_period="2024-10-01",
+                freshness=DataFreshness.LIVE,
+            ),
+        )
+
+        mock_resp = BankingMarketResponse(
+            status=DataFreshness.LIVE,
+            benchmark_index=fake_metric,
+            top_banks=[fake_metric],
+            total_records=2,
+        )
+
+        with patch("finance_sector.mcp_server.fetch_banking_market_indicators", AsyncMock(return_value=mock_resp)):
+            res = await get_banking_market_indicators()
+            assert res.status == DataFreshness.LIVE
+            assert res.total_records == 2
+            assert res.benchmark_index.symbol == "SBIN.NS"
+
+    @pytest.mark.asyncio
+    async def test_tavily_realtime_news_model_and_tool(self):
+        from finance_sector.market_client import fetch_realtime_finance_news
+        from finance_sector.mcp_server import get_realtime_finance_news
+        from finance_sector.models import FinanceNewsResponse, TavilyNewsItem
+
+        fake_item = TavilyNewsItem(
+            title="RBI Keeps Repo Rate Unchanged at 5.25%",
+            url="https://rbi.org.in/press/123",
+            content="The MPC decided unanimously to keep the policy repo rate unchanged.",
+            published_date="2026-08-05",
+        )
+        mock_resp = FinanceNewsResponse(
+            status=DataFreshness.LIVE,
+            query="RBI policy",
+            news_items=[fake_item],
+            total_results=1,
+        )
+
+        with patch("finance_sector.mcp_server.fetch_realtime_finance_news", AsyncMock(return_value=mock_resp)):
+            res = await get_realtime_finance_news(query="RBI policy")
+            assert res.status == DataFreshness.LIVE
+            assert res.total_results == 1
+            assert res.news_items[0].title == "RBI Keeps Repo Rate Unchanged at 5.25%"
+
+    @pytest.mark.asyncio
+    async def test_fastapi_new_endpoints(self):
+        from fastapi.testclient import TestClient
+        from finance_sector.api.app import app
+        from finance_sector.models import BankingMarketResponse, FinanceNewsResponse, BankEquityMetric, TavilyNewsItem
+
+        fake_metric = BankEquityMetric(
+            symbol="^NSEBANK",
+            name="Nifty Bank",
+            current_price=54000.0,
+            change_pct=-0.5,
+            pe_ratio=15.0,
+            pb_ratio=2.0,
+            market_cap_cr=None,
+            high_52w=55000.0,
+            low_52w=45000.0,
+            citation=Citation(
+                source_authority="NSE / Yahoo Finance",
+                document_title="Nifty Bank",
+                table_reference="yfinance:^NSEBANK",
+                retrieval_url="https://finance.yahoo.com/quote/^NSEBANK",
+                observation_period="2024-10-01",
+                freshness=DataFreshness.LIVE,
+            ),
+        )
+        mock_market = BankingMarketResponse(
+            status=DataFreshness.LIVE,
+            benchmark_index=fake_metric,
+            top_banks=[],
+            total_records=1,
+        )
+        mock_news = FinanceNewsResponse(
+            status=DataFreshness.LIVE,
+            query="test",
+            news_items=[],
+            total_results=0,
+        )
+
+        with patch("finance_sector.api.app.fetch_banking_market_indicators", AsyncMock(return_value=mock_market)), \
+             patch("finance_sector.api.app.fetch_realtime_finance_news", AsyncMock(return_value=mock_news)):
+            client = TestClient(app)
+            r_mkt = client.get("/market-indicators")
+            assert r_mkt.status_code == 200
+            assert r_mkt.json()["benchmark_index"]["symbol"] == "^NSEBANK"
+
+            r_news = client.get("/realtime-news?query=banking")
+            assert r_news.status_code == 200
+            assert r_news.json()["status"] == "live"
+
+
+
 

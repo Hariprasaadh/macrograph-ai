@@ -17,6 +17,10 @@ class FinanceSectorSettings(BaseSettings):
     # API key for the finance sector LLM calls (FIN_FIS_KEY from .env)
     FIN_FIS_KEY: str | None = Field(default=None, description="Groq API key for finance sector agent")
 
+    # Tavily API key for real-time finance news & intelligence
+    TVLY_KEY_1: str | None = Field(default=None, description="Primary Tavily API key for search enrichment")
+    TAVILY_API_KEY: str | None = Field(default=None, description="Fallback Tavily API key")
+
     # LLM model for this sector
     FINANCE_LLM_MODEL: str = Field(
         default="openai/gpt-oss-120b",

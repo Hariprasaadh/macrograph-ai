@@ -15,7 +15,6 @@ Rules:
 """
 from __future__ import annotations
 
-import json
 import logging
 from datetime import datetime, timezone
 from typing import Any
@@ -30,24 +29,30 @@ from tenacity import (
 )
 
 from finance_sector import database as db
+from finance_sector.cache_loaders import (
+    FinanceDataUnavailableError,
+    load_asset_quality_from_cache,
+    load_credit_from_cache,
+    load_deposits_from_cache,
+    load_lending_rates_from_cache,
+)
 from finance_sector.config import finance_settings
+from finance_sector.market_client import (
+    fetch_banking_market_indicators,
+    fetch_realtime_finance_news,
+)
 from finance_sector.models import (
     BankCreditGrowthRecord,
     BankGroup,
-    Citation,
-    DataFreshness,
     DepositRecord,
     LendingRateRecord,
     NPARecord,
-    SectoralCreditBreakdown,
 )
 from finance_sector.parsers import (
-    map_bank_group,
     parse_asset_quality,
     parse_credit_records,
     parse_deposits,
     parse_lending_rates,
-    safe_float_val,
 )
 
 logger = logging.getLogger(__name__)
@@ -60,6 +65,7 @@ _CREDIT_CDN_URL = f"{_CDN}/bank-credit-by-sector.json"
 _BANK_SURVEY_CDN_URL = f"{_CDN}/commercial-bank-survey.json"
 _BUSINESS_CDN_URL = f"{_CDN}/business-of-scheduled-banks.json"
 _RATES_API_URL = f"{_API}/financial_sector/r531_key_rates/rows"
+_MPC_RATES_API_URL = f"{_API}/financial_sector/r1491_mpc_voting_pattern_policy_rate/rows"
 _NPA_API_URL = (
     f"{_API}/financial_sector/"
     "r330_gross_and_net_npas_of_scheduled_commercial_banks_bank_grou/rows"
@@ -68,10 +74,6 @@ _CRAR_API_URL = (
     f"{_API}/financial_sector/"
     "r329_distribution_of_scheduled_commercial_banks_by_crar/rows"
 )
-
-
-class FinanceDataUnavailableError(Exception):
-    """Raised when neither live fetch nor cache can supply data."""
 
 
 # ── Tenacity retry decorator & HTTP client ────────────────────────────────
@@ -107,16 +109,6 @@ def _build_client() -> httpx.AsyncClient:
         headers={"User-Agent": "macrograph-ai/finance-sector"},
         follow_redirects=True,
     )
-
-
-def _prepare_cached_citation(citation_data: Any) -> Citation:
-    """Deserialise citation dictionary and mark freshness as CACHED."""
-    if isinstance(citation_data, str):
-        citation_data = json.loads(citation_data)
-    elif not isinstance(citation_data, dict):
-        citation_data = {}
-    citation_data["freshness"] = DataFreshness.CACHED
-    return Citation.model_validate(citation_data)
 
 
 # ── Pillar 1: Bank Credit Growth ──────────────────────────────────────────
@@ -156,39 +148,7 @@ async def fetch_bank_credit_growth(lookback_months: int = 12) -> list[BankCredit
     except Exception as exc:
         logger.warning("Live credit fetch failed: %s. Falling back to cache.", exc)
         db.log_fetch("get_bank_credit_growth", "cache_fallback", error_msg=str(exc))
-        return _load_credit_from_cache(lookback_months)
-
-
-def _load_credit_from_cache(lookback_months: int) -> list[BankCreditGrowthRecord]:
-    rows = db.query_latest_rows("bank_credit_growth", lookback_months)
-    if not rows:
-        raise FinanceDataUnavailableError(
-            "Bank credit growth data unavailable: live fetch failed and cache is empty."
-        )
-    records = []
-    for row in rows:
-        citation = _prepare_cached_citation(row.get("citation", {}))
-        records.append(
-            BankCreditGrowthRecord(
-                period=row["period"],
-                gross_credit_cr=row.get("gross_credit_cr") or 0.0,
-                non_food_credit_cr=row.get("non_food_credit_cr") or 0.0,
-                non_food_credit_yoy_pct=row.get("non_food_credit_yoy_pct"),
-                sectoral=SectoralCreditBreakdown(
-                    agriculture_cr=row.get("agriculture_cr"),
-                    industry_cr=row.get("industry_cr"),
-                    industry_msme_cr=row.get("industry_msme_cr"),
-                    industry_large_cr=row.get("industry_large_cr"),
-                    services_cr=row.get("services_cr"),
-                    personal_loans_cr=row.get("personal_loans_cr"),
-                    personal_housing_cr=row.get("personal_housing_cr"),
-                    personal_vehicle_cr=row.get("personal_vehicle_cr"),
-                ),
-                citation=citation,
-            )
-        )
-    records.sort(key=lambda r: str(r.period))
-    return records
+        return load_credit_from_cache(lookback_months)
 
 
 # ── Pillar 2: Asset Quality & Capital Adequacy ────────────────────────────
@@ -232,51 +192,26 @@ async def fetch_asset_quality(
     except Exception as exc:
         logger.warning("Live asset quality fetch failed: %s. Falling back to cache.", exc)
         db.log_fetch("get_asset_quality", "cache_fallback", error_msg=str(exc))
-        return _load_asset_quality_from_cache(bank_group, lookback_quarters)
-
-
-def _load_asset_quality_from_cache(bank_group: BankGroup, lookback_quarters: int) -> list[NPARecord]:
-    rows = db.query_latest_rows("asset_quality", lookback_quarters * 5)
-    if not rows:
-        raise FinanceDataUnavailableError(
-            "Asset quality data unavailable: live fetch failed and cache is empty."
-        )
-    records = []
-    for row in rows:
-        if bank_group != BankGroup.ALL_SCB and row.get("bank_group") != bank_group.value:
-            continue
-        citation = _prepare_cached_citation(row.get("citation", {}))
-        records.append(
-            NPARecord(
-                period=row["period"],
-                bank_group=BankGroup(row.get("bank_group", "ALL_SCB")),
-                gross_npa_pct=row.get("gross_npa_pct"),
-                net_npa_pct=row.get("net_npa_pct"),
-                gross_npa_cr=row.get("gross_npa_cr"),
-                net_npa_cr=row.get("net_npa_cr"),
-                provision_coverage_ratio_pct=row.get("provision_coverage_ratio_pct"),
-                crar_pct=row.get("crar_pct"),
-                cet1_pct=row.get("cet1_pct"),
-                citation=citation,
-            )
-        )
-    records.sort(key=lambda r: str(r.period), reverse=True)
-    retained = records[:lookback_quarters]
-    retained.sort(key=lambda r: str(r.period))
-    return retained
+        return load_asset_quality_from_cache(bank_group, lookback_quarters)
 
 
 # ── Pillar 3: Lending Rates ───────────────────────────────────────────────
 
 async def fetch_lending_rates(lookback_months: int = 12) -> list[LendingRateRecord]:
-    """Fetch WALR/MCLR/WADTDR from DBIE Postgres REST API; fall back to cache."""
+    """Fetch WALR/MCLR/WADTDR and Policy Rates from DBIE; fall back to cache."""
     try:
         async with _build_client() as client:
-            payload = await _fetch_json(
-                client, _RATES_API_URL, params={"limit": max(50, lookback_months + 15), "offset": 0}
-            )
+            try:
+                mpc_payload = await _fetch_json(
+                    client, _MPC_RATES_API_URL, params={"limit": max(50, lookback_months + 15), "offset": 0}
+                )
+                records = parse_lending_rates(mpc_payload, lookback_months)
+            except Exception:
+                payload = await _fetch_json(
+                    client, _RATES_API_URL, params={"limit": max(50, lookback_months + 15), "offset": 0}
+                )
+                records = parse_lending_rates(payload, lookback_months)
 
-        records = parse_lending_rates(payload, lookback_months)
         db_rows = [
             {
                 "period": r.period,
@@ -299,33 +234,7 @@ async def fetch_lending_rates(lookback_months: int = 12) -> list[LendingRateReco
     except Exception as exc:
         logger.warning("Live lending rates fetch failed: %s. Falling back to cache.", exc)
         db.log_fetch("get_lending_and_deposit_rates", "cache_fallback", error_msg=str(exc))
-        return _load_lending_rates_from_cache(lookback_months)
-
-
-def _load_lending_rates_from_cache(lookback_months: int) -> list[LendingRateRecord]:
-    rows = db.query_latest_rows("lending_rates", lookback_months)
-    if not rows:
-        raise FinanceDataUnavailableError(
-            "Lending rates data unavailable: live fetch failed and cache is empty."
-        )
-    records = []
-    for row in rows:
-        citation = _prepare_cached_citation(row.get("citation", {}))
-        records.append(
-            LendingRateRecord(
-                period=row["period"],
-                walr_fresh_pct=row.get("walr_fresh_pct"),
-                walr_outstanding_pct=row.get("walr_outstanding_pct"),
-                mclr_1yr_median_pct=row.get("mclr_1yr_median_pct"),
-                wadtdr_fresh_pct=row.get("wadtdr_fresh_pct"),
-                wadtdr_outstanding_pct=row.get("wadtdr_outstanding_pct"),
-                repo_rate_pct=row.get("repo_rate_pct"),
-                lending_spread_over_repo_pct=row.get("lending_spread_over_repo_pct"),
-                citation=citation,
-            )
-        )
-    records.sort(key=lambda r: str(r.period))
-    return records
+        return load_lending_rates_from_cache(lookback_months)
 
 
 # ── Pillar 4: Deposits & CD Ratio ─────────────────────────────────────────
@@ -360,30 +269,4 @@ async def fetch_deposits_and_cd_ratio(lookback_months: int = 12) -> list[Deposit
     except Exception as exc:
         logger.warning("Live deposits fetch failed: %s. Falling back to cache.", exc)
         db.log_fetch("get_deposits_and_cd_ratio", "cache_fallback", error_msg=str(exc))
-        return _load_deposits_from_cache(lookback_months)
-
-
-def _load_deposits_from_cache(lookback_months: int) -> list[DepositRecord]:
-    rows = db.query_latest_rows("deposits_cd_ratio", lookback_months)
-    if not rows:
-        raise FinanceDataUnavailableError(
-            "Deposits/CD ratio data unavailable: live fetch failed and cache is empty."
-        )
-    records = []
-    for row in rows:
-        citation = _prepare_cached_citation(row.get("citation", {}))
-        records.append(
-            DepositRecord(
-                period=row["period"],
-                aggregate_deposits_cr=row.get("aggregate_deposits_cr"),
-                deposits_yoy_pct=row.get("deposits_yoy_pct"),
-                demand_deposits_cr=row.get("demand_deposits_cr"),
-                time_deposits_cr=row.get("time_deposits_cr"),
-                casa_ratio_pct=row.get("casa_ratio_pct"),
-                bank_credit_cr=row.get("bank_credit_cr"),
-                cd_ratio_pct=row.get("cd_ratio_pct"),
-                citation=citation,
-            )
-        )
-    records.sort(key=lambda r: str(r.period))
-    return records
+        return load_deposits_from_cache(lookback_months)

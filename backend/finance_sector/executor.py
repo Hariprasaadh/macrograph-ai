@@ -115,6 +115,12 @@ class FinanceSectorAgentExecutor(AgentExecutor):
 
         try:
             # Fetch data across pillars independently
+            market_res, news_res = await asyncio.gather(
+                client.fetch_banking_market_indicators(),
+                client.fetch_realtime_finance_news(query="RBI commercial bank credit growth 2026", max_results=3),
+                return_exceptions=True,
+            )
+
             results = await asyncio.gather(
                 client.fetch_bank_credit_growth(lookback_months=6),
                 client.fetch_asset_quality(BankGroup.ALL_SCB, lookback_quarters=4),
@@ -137,11 +143,23 @@ class FinanceSectorAgentExecutor(AgentExecutor):
                 f"- **CRAR**: {quality_records[-1].crar_pct if quality_records else 'N/A'}%",
                 f"- **Fresh Loan WALR**: {rates_records[-1].walr_fresh_pct if rates_records else 'N/A'}%",
                 f"- **Credit-Deposit Ratio**: {deposits_records[-1].cd_ratio_pct if deposits_records else 'N/A'}%",
+            ]
+
+            if not isinstance(market_res, Exception) and getattr(market_res, "benchmark_index", None):
+                b = market_res.benchmark_index
+                summary_lines.append(f"- **Nifty Bank Benchmark**: {b.current_price:,.2f} ({b.change_pct:+.2f}%)")
+
+            if not isinstance(news_res, Exception) and getattr(news_res, "news_items", None):
+                summary_lines.append("\n## Latest Real-Time Developments")
+                for n in news_res.news_items[:2]:
+                    summary_lines.append(f"- [{n.title}]({n.url})")
+
+            summary_lines.extend([
                 "",
                 "## 2. Provenance & Attribution Catalog",
                 "| Indicator | Latest Value | Unit | Period | Official Authority | Source Table |",
                 "| :--- | :--- | :--- | :--- | :--- | :--- |",
-            ]
+            ])
 
             if credit_records:
                 cr = credit_records[-1]

@@ -1,25 +1,7 @@
 """Finance & Banking Sector FastMCP Server.
 
-Exposes 4 tools discoverable via the MCP registry:
-  - get_bank_credit_growth
-  - get_asset_quality
-  - get_lending_and_deposit_rates
-  - get_deposits_and_cd_ratio
-
-Architecture:
-  - FastMCP 4.x with full tool metadata (title, description, tags, version).
-  - Resilient caching: tries live DBIE fetch first, falls back to DuckDB.
-  - Strict citation: every response includes Attribution metadata.
-  - No hardcoded economic values anywhere.
-
-Registration:
-  This server is imported by backend/main.py and mounted on the FastAPI
-  gateway. It can also be run standalone for development:
-
-      fastmcp run finance_sector/mcp_server.py:mcp_server
-
-MCP Registry metadata is embedded in the FastMCP server metadata fields
-so that AI agents and developer registries can auto-discover capabilities.
+Exposes official RBI DBIE, yfinance market data, and Tavily real-time news tools.
+Strict Provenance: every response includes Citation metadata.
 """
 from __future__ import annotations
 
@@ -32,12 +14,18 @@ from pydantic import Field
 from finance_sector import database as db
 from finance_sector import client
 from finance_sector.client import FinanceDataUnavailableError
+from finance_sector.market_client import (
+    fetch_banking_market_indicators,
+    fetch_realtime_finance_news,
+)
 from finance_sector.models import (
     AssetQualityResponse,
     BankCreditGrowthResponse,
     BankGroup,
+    BankingMarketResponse,
     DataFreshness,
     DepositsAndCDResponse,
+    FinanceNewsResponse,
     LendingRatesResponse,
     UnavailableResponse,
 )
@@ -54,16 +42,13 @@ mcp_server = FastMCP(
         "Provides official RBI macroeconomic data for India's Scheduled Commercial Banks. "
         "All values carry mandatory citation metadata (source, table, period, URL). "
         "No Source, No Answer: values without citations are a protocol violation. "
-        "Data is fetched live from RBI DBIE; on failure, the most recent cached data "
-        "from the sector's dedicated DuckDB store is returned with freshness=CACHED."
+        "Data is fetched live from RBI DBIE, yfinance, and Tavily; on failure, the most "
+        "recent cached data from the sector's dedicated DuckDB store is returned with freshness=CACHED."
     ),
     version="1.0.0",
 )
 mcp = mcp_server
 server = mcp_server
-
-# Initialise the database schema on server startup
-db.initialise_schema()
 
 
 # ---------------------------------------------------------------------------
@@ -291,6 +276,69 @@ async def get_deposits_and_cd_ratio(
             reason=f"Unexpected error: {exc}",
             error_detail=repr(exc),
         )
+
+
+# ---------------------------------------------------------------------------
+# Tool 5 — Banking Market Equities & Indices (yfinance)
+# ---------------------------------------------------------------------------
+
+@mcp_server.tool(
+    name="get_banking_market_indicators",
+    title="Banking Market Equities & Nifty Bank Index",
+    description=(
+        "Fetches live market valuation, current price, day return, P/E, P/B, and 52-week "
+        "range for the Nifty Bank index (^NSEBANK) and major Indian commercial banks "
+        "(SBI, HDFC Bank, ICICI Bank, Kotak Mahindra, Axis Bank) via Yahoo Finance."
+    ),
+    tags={"finance", "market", "equities", "nifty-bank", "valuation", "yfinance"},
+)
+async def get_banking_market_indicators() -> BankingMarketResponse | UnavailableResponse:
+    """Return live quotes and valuation metrics for banking sector equities."""
+    try:
+        return await fetch_banking_market_indicators()
+    except Exception as exc:
+        logger.exception("get_banking_market_indicators: unexpected error")
+        return UnavailableResponse(
+            tool="get_banking_market_indicators",
+            reason=f"Market data fetch failed: {exc}",
+            error_detail=repr(exc),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Tool 6 — Real-Time Financial News & Intelligence (Tavily)
+# ---------------------------------------------------------------------------
+
+@mcp_server.tool(
+    name="get_realtime_finance_news",
+    title="Real-Time Banking & Regulatory Intelligence",
+    description=(
+        "Enriches banking intelligence with real-time news, RBI regulatory notifications, "
+        "and MPC policy commentary using Tavily AI Search (TVLY_KEY_1)."
+    ),
+    tags={"finance", "news", "regulatory", "rbi", "realtime", "tavily"},
+)
+async def get_realtime_finance_news(
+    query: Annotated[
+        str,
+        Field(default="RBI monetary policy commercial bank credit growth India", description="Financial search query."),
+    ] = "RBI monetary policy commercial bank credit growth India",
+    max_results: Annotated[
+        int,
+        Field(default=5, ge=1, le=10, description="Maximum news articles to retrieve."),
+    ] = 5,
+) -> FinanceNewsResponse | UnavailableResponse:
+    """Return real-time banking news and regulatory updates for a topic."""
+    try:
+        return await fetch_realtime_finance_news(query=query, max_results=max_results)
+    except Exception as exc:
+        logger.exception("get_realtime_finance_news: unexpected error")
+        return UnavailableResponse(
+            tool="get_realtime_finance_news",
+            reason=f"News search failed: {exc}",
+            error_detail=repr(exc),
+        )
+
 
 
 # ---------------------------------------------------------------------------
