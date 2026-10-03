@@ -192,3 +192,33 @@
   border: none;
   color: #e2e8f0;
 }
+
+.capital-market-response .capital-market-table-scroll {
+  max-width: 100%;
+  margin: 0.85rem 0 1.1rem;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  border-radius: 0.75rem;
+  background: rgba(8, 15, 30, 0.72);
+  box-shadow: 0 10px 28px rgba(2, 6, 23, 0.22);
+  scrollbar-color: rgba(56, 189, 248, 0.45) rgba(15, 23, 42, 0.75);
+  scrollbar-width: thin;
+}
+
+.capital-market-response .capital-market-table-scroll table {
+  width: max-content;
+  min-width: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  table-layout: auto;
+}
+
+.capital-market-response .capital-market-table-scroll th,
+.capital-market-response .capital-market-table-scroll td {
+  max-width: 20rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  vertical-align: top;
+}

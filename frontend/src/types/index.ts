@@ -41,9 +41,15 @@ export interface CitationItem {
   table_reference?: string;
   document_title?: string;
   retrieval_url?: string;
+  dataset?: string;
   observation_period?: string;
   period?: string;
   freshness?: 'live' | 'cached' | 'unavailable' | string;
+  source_base_url?: string;
+  source_note?: string;
+  as_of?: string;
+  frequency?: string;
+  unit?: string;
   provenance_hash?: string;
 }
 
@@ -74,6 +80,8 @@ export interface ChatMessage {
   }>;
   mermaidDiagram?: string;
   confidenceScore?: number;
+  dataStatus?: 'completed' | 'partial' | 'unavailable' | 'failed' | string;
+  dataFreshness?: Record<string, string>;
   isStreaming?: boolean;
 }
 

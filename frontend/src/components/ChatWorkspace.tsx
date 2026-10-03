@@ -7,8 +7,16 @@ import {
   Cpu,
   CheckCircle2,
   RefreshCw,
+  Network,
+  Landmark,
+  TrendingUp,
+  Coins,
+  Globe,
+  Users,
+  type LucideIcon,
 } from 'lucide-react';
 import { ChatMessage, StreamStep } from '../types';
+import { SECTOR_AGENTS } from '../data/agents';
 
 interface ChatWorkspaceProps {
   selectedAgentId: string;
@@ -54,6 +62,66 @@ const DEFAULT_MESSAGES: Record<string, ChatMessage[]> = {
   ],
 };
 
+const SECTOR_WORKSPACE_DESCRIPTIONS: Record<string, string> = {
+  external_sector:
+    'Combines a configured RBI forex feed with locally stored trade and exchange-rate observations.',
+  labour_sector:
+    'Uses a configured MoSPI unemployment request and locally stored labour observations.',
+  capital_market_sector:
+    'Uses a configured NSE NIFTY request and locally stored market observations.',
+  monetary_sector:
+    'Uses the official RBIH DBIE MCP snapshot for policy rates, money stock, and RBI liquidity operations; upstream data reflects the deployment’s last scrape, not real-time values.',
+};
+
+const SECTOR_WELCOME_MESSAGES: Record<string, string> = Object.fromEntries(
+  Object.keys(SECTOR_WORKSPACE_DESCRIPTIONS).map((sectorId) => {
+    const agent = SECTOR_AGENTS.find((item) => item.id === sectorId)!;
+    const indicatorAreas = agent.ownership.map((item) => `- ${item}`).join('\n');
+
+    return [
+      sectorId,
+      `### ${agent.name} Specialist\n\n${SECTOR_WORKSPACE_DESCRIPTIONS[sectorId]}\n\n### Available Indicator Areas:\n${indicatorAreas}\n\nAsk about these indicators; returned data availability and freshness can vary by source.`,
+    ];
+  }),
+);
+
+const NEW_SECTOR_DEFAULT_MESSAGES: Record<string, ChatMessage[]> = Object.fromEntries(
+  Object.entries(SECTOR_WELCOME_MESSAGES).map(([sectorId, content]) => {
+    const agent = SECTOR_AGENTS.find((item) => item.id === sectorId);
+    return [
+      sectorId,
+      [
+        {
+          id: `welcome-${sectorId}`,
+          role: 'assistant',
+          content,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          agentRouted: `${agent?.name} Specialist`,
+          citations: [],
+        },
+      ],
+    ];
+  }),
+);
+
+const AGENT_ICONS: Record<string, LucideIcon> = {
+  orchestrator: Network,
+  finance_sector: Landmark,
+  external_sector: Globe,
+  labour_sector: Users,
+  capital_market_sector: TrendingUp,
+  monetary_sector: Coins,
+};
+
+const AGENT_SHORT_NAMES: Record<string, string> = {
+  orchestrator: 'Orchestrator',
+  finance_sector: 'Finance Agent',
+  external_sector: 'External',
+  labour_sector: 'Labour',
+  capital_market_sector: 'Capital',
+  monetary_sector: 'Monetary',
+};
+
 const SUGGESTED_PROMPTS: Record<string, { text: string }[]> = {
   orchestrator: [
     {
@@ -83,6 +151,26 @@ const SUGGESTED_PROMPTS: Record<string, { text: string }[]> = {
       text: 'What is the latest Credit-to-Deposit (CD) ratio and aggregate deposit growth for SCBs?',
     },
   ],
+  external_sector: [
+    { text: 'What are the latest foreign exchange reserve observations and their reporting period?' },
+    { text: 'Summarize the latest merchandise exports, imports, and trade balance data.' },
+    { text: 'What USD/INR exchange-rate observations are available, and what is their freshness?' },
+  ],
+  labour_sector: [
+    { text: 'What unemployment-rate observations are available, and what period do they cover?' },
+    { text: 'Summarize the latest LFPR data, including available gender and rural/urban breakdowns.' },
+    { text: 'What worker population ratio observations are available in the labour data?' },
+  ],
+  capital_market_sector: [
+    { text: 'What NIFTY 50 snapshot is available, including its observation date?' },
+    { text: 'What India VIX observation is available, and what is its recorded period?' },
+    { text: 'Summarize available G-Sec yields across the reported maturities.' },
+  ],
+  monetary_sector: [
+    { text: 'What policy-rate observations are available, including repo, SDF, and MSF?' },
+    { text: 'Summarize the latest available money-supply observations for M1, M2, and M3.' },
+    { text: 'What system-liquidity and monetary-stance observations are available?' },
+  ],
 };
 
 export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
@@ -90,15 +178,24 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   onSelectAgent,
 }) => {
   // Separate message histories per agent
-  const [messagesByAgent, setMessagesByAgent] = useState<Record<string, ChatMessage[]>>(DEFAULT_MESSAGES);
+  const [messagesByAgent, setMessagesByAgent] = useState<Record<string, ChatMessage[]>>(() => ({
+    ...DEFAULT_MESSAGES,
+    ...NEW_SECTOR_DEFAULT_MESSAGES,
+  }));
   const [input, setInput] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [activeSteps, setActiveSteps] = useState<StreamStep[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
+  const selectedAgent =
+    SECTOR_AGENTS.find((agent) => agent.id === selectedAgentId) ||
+    SECTOR_AGENTS.find((agent) => agent.id === 'orchestrator')!;
   const isFinance = selectedAgentId === 'finance_sector';
-  const currentMessages = messagesByAgent[selectedAgentId] || DEFAULT_MESSAGES[selectedAgentId] || [];
+  const isNewSector = Boolean(SECTOR_WORKSPACE_DESCRIPTIONS[selectedAgentId]);
+  const isOrchestrator = !isFinance && !isNewSector;
+  const AgentIcon = AGENT_ICONS[selectedAgentId] || Network;
+  const currentMessages = messagesByAgent[selectedAgentId] || [];
   const currentPrompts = SUGGESTED_PROMPTS[selectedAgentId] || SUGGESTED_PROMPTS.orchestrator;
 
   const scrollToBottom = () => {
@@ -129,6 +226,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 
     const currentAgent = selectedAgentId;
     const isCurrentFinance = currentAgent === 'finance_sector';
+    const currentAgentMeta = SECTOR_AGENTS.find((agent) => agent.id === currentAgent);
 
     const userMessage: ChatMessage = {
       id: `msg-${Date.now()}`,
@@ -144,7 +242,11 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       role: 'assistant',
       content: '',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      agentRouted: isCurrentFinance ? 'Finance & Banking Sector Agent' : 'Macrograph Orchestrator',
+      agentRouted: isCurrentFinance
+        ? 'Finance & Banking Sector Agent'
+        : SECTOR_WORKSPACE_DESCRIPTIONS[currentAgent]
+        ? `${currentAgentMeta?.name || 'Sector'} Specialist`
+        : 'Macrograph Orchestrator',
       isStreaming: true,
       steps: [],
       citations: [],
@@ -244,11 +346,17 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 content: finalDonePayload?.full_report || accumulatedText,
                 agentRouted:
                   finalDonePayload?.agent_routed ||
-                  (isCurrentFinance ? 'Finance & Banking Sector Agent' : 'Macrograph Orchestrator'),
+                  (isCurrentFinance
+                    ? 'Finance & Banking Sector Agent'
+                    : SECTOR_WORKSPACE_DESCRIPTIONS[currentAgent]
+                    ? `${currentAgentMeta?.name || 'Sector'} Specialist`
+                    : 'Macrograph Orchestrator'),
                 citations: finalDonePayload?.citations || [],
                 observations: finalDonePayload?.observations,
                 mermaidDiagram: finalDonePayload?.mermaid_diagram,
                 confidenceScore: finalDonePayload?.confidence_score,
+                dataStatus: finalDonePayload?.status,
+                dataFreshness: finalDonePayload?.freshness,
                 isStreaming: false,
                 steps: receivedSteps,
               }
@@ -266,6 +374,10 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             ? {
                 ...msg,
                 content: `### Research Request Incomplete\n\nAn error occurred while communicating with the agent: ${err.message || 'Unknown network error'}.`,
+                dataStatus: SECTOR_WORKSPACE_DESCRIPTIONS[currentAgent] ? 'failed' : undefined,
+                dataFreshness: SECTOR_WORKSPACE_DESCRIPTIONS[currentAgent]
+                  ? { source: 'unavailable' }
+                  : undefined,
                 isStreaming: false,
               }
             : msg
@@ -286,65 +398,121 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             className={`w-9 h-9 rounded-xl flex items-center justify-center font-mono font-bold text-xs ${
               isFinance
                 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-glow-emerald/20'
-                : 'bg-brand-500/20 text-brand-400 border border-brand-500/30 shadow-glow-brand/20'
+                : isOrchestrator
+                ? 'bg-brand-500/20 text-brand-400 border border-brand-500/30 shadow-glow-brand/20'
+                : ''
             }`}
+            style={
+              isNewSector
+                ? {
+                    backgroundColor: `${selectedAgent.color}20`,
+                    color: selectedAgent.color,
+                    border: `1px solid ${selectedAgent.color}50`,
+                  }
+                : undefined
+            }
           >
-            {isFinance ? 'FN' : 'OR'}
+            {isFinance ? 'FN' : isOrchestrator ? 'OR' : <AgentIcon className="w-4 h-4" />}
           </div>
 
           <div>
             <div className="flex items-center gap-2">
               <span className="font-semibold text-sm text-white">
-                {isFinance ? 'Finance & Banking Sector Agent' : 'Macrograph Orchestrator'}
+                {isFinance
+                  ? 'Finance & Banking Sector Agent'
+                  : isOrchestrator
+                  ? 'Macrograph Orchestrator'
+                  : `${selectedAgent.name} Specialist`}
               </span>
               <span
                 className={`text-[10px] font-mono uppercase px-2 py-0.5 rounded-full font-medium ${
                   isFinance
                     ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                    : 'bg-brand-500/10 text-brand-300 border border-brand-500/20'
+                    : isOrchestrator
+                    ? 'bg-brand-500/10 text-brand-300 border border-brand-500/20'
+                    : ''
                 }`}
+                style={
+                  isNewSector
+                    ? {
+                        backgroundColor: `${selectedAgent.color}20`,
+                        color: selectedAgent.color,
+                        border: `1px solid ${selectedAgent.color}40`,
+                      }
+                    : undefined
+                }
               >
-                {isFinance ? 'Direct Domain Mode (SCBs Only)' : 'Multi-Agent Routing (All 10 Sectors)'}
+                {isFinance
+                  ? 'Direct Domain Mode (SCBs Only)'
+                  : isOrchestrator
+                  ? 'Multi-Agent Routing (All 10 Sectors)'
+                  : 'Direct Domain Mode'}
               </span>
             </div>
             <div className="text-[11px] text-slate-400 flex items-center gap-2">
               <span>
                 {isFinance
                   ? 'Data: RBI DBIE Tables r539, r330, r531, r689 • Scheduled Commercial Banks'
-                  : 'A2A Protocol Coordination • Cross-Sector Synthesis'}
+                  : isOrchestrator
+                  ? 'A2A Protocol Coordination • Cross-Sector Synthesis'
+                  : isNewSector
+                  ? `Data: ${selectedAgent.mcpSources.join(' • ')}`
+                  : selectedAgent.domain}
               </span>
               <span>•</span>
-              <span className="text-emerald-400 flex items-center gap-1 font-mono">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                Live Ingested
-              </span>
+              {isFinance ? (
+                <span className="text-emerald-400 flex items-center gap-1 font-mono">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  Live Ingested
+                </span>
+              ) : isOrchestrator ? (
+                <span className="text-emerald-400 flex items-center gap-1 font-mono">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  Live Ingested
+                </span>
+              ) : isNewSector ? (
+                <span className="text-emerald-400 flex items-center gap-1 font-mono whitespace-nowrap">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  Freshness per dataset
+                </span>
+              ) : (
+                <span className="font-mono">Availability varies</span>
+              )}
             </div>
           </div>
         </div>
 
         {/* Quick Agent Mode Toggle */}
-        <div className="flex items-center gap-2 bg-slate-900/80 p-1 rounded-xl border border-white/10 text-xs">
-          <button
-            onClick={() => onSelectAgent('orchestrator')}
-            className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
-              !isFinance
-                ? 'bg-brand-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            Orchestrator
-          </button>
-          <button
-            onClick={() => onSelectAgent('finance_sector')}
-            className={`px-3 py-1.5 rounded-lg font-medium transition-all flex items-center gap-1.5 ${
-              isFinance
-                ? 'bg-emerald-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-            <span>Finance Agent</span>
-          </button>
+        <div className="flex items-center gap-2 bg-slate-900/80 p-1 rounded-xl border border-white/10 text-xs max-w-[48%] overflow-x-auto">
+          {SECTOR_AGENTS.filter((agent) => agent.status === 'active').map((agent) => {
+            const isSelected = selectedAgentId === agent.id;
+            const isFinanceAgent = agent.id === 'finance_sector';
+            const isOrchestratorAgent = agent.id === 'orchestrator';
+
+            return (
+              <button
+                key={agent.id}
+                onClick={() => onSelectAgent(agent.id)}
+                title={agent.name}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                  isSelected
+                    ? isFinanceAgent
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : isOrchestratorAgent
+                      ? 'bg-brand-600 text-white shadow-sm'
+                      : 'bg-emerald-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    isOrchestratorAgent ? 'bg-brand-400' : 'bg-emerald-400'
+                  }`}
+                />
+                <span>{AGENT_SHORT_NAMES[agent.id] || agent.name}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -362,10 +530,25 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 text-xs font-mono font-bold mt-1 ${
                   message.agentRouted?.includes('Finance')
                     ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                    : 'bg-brand-500/20 text-brand-400 border border-brand-500/30'
+                    : isOrchestrator
+                    ? 'bg-brand-500/20 text-brand-400 border border-brand-500/30'
+                    : ''
                 }`}
+                style={
+                  isNewSector
+                    ? {
+                        backgroundColor: `${selectedAgent.color}20`,
+                        color: selectedAgent.color,
+                        border: `1px solid ${selectedAgent.color}50`,
+                      }
+                    : undefined
+                }
               >
-                {message.agentRouted?.includes('Finance') ? 'FN' : 'OR'}
+                {message.agentRouted?.includes('Finance')
+                  ? 'FN'
+                  : isOrchestrator
+                  ? 'OR'
+                  : <AgentIcon className="w-4 h-4" />}
               </div>
             )}
 
@@ -380,9 +563,31 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 <div className="flex items-center justify-between pb-3 mb-3 border-b border-white/5 text-xs text-slate-400">
                   <div className="flex items-center gap-2">
                     <span className="font-semibold text-white">{message.agentRouted}</span>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-white/5 text-slate-400">
-                      Attribution Verified
-                    </span>
+                    {isNewSector ? (
+                      <span
+                        className={`text-[10px] font-mono px-2 py-0.5 rounded ${
+                          message.dataStatus === 'partial'
+                            ? 'bg-amber-500/10 text-amber-300'
+                            : message.dataStatus === 'unavailable' || message.dataStatus === 'failed'
+                            ? 'bg-rose-500/10 text-rose-300'
+                            : 'bg-white/5 text-slate-400'
+                        }`}
+                      >
+                        {message.dataStatus === 'partial'
+                          ? 'Partial data'
+                          : message.dataStatus === 'unavailable'
+                          ? 'Data unavailable'
+                          : message.dataStatus === 'failed'
+                          ? 'Agent error'
+                          : message.dataStatus === 'completed'
+                          ? 'Data available'
+                          : 'Sector response'}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-white/5 text-slate-400">
+                        Attribution Verified
+                      </span>
+                    )}
                   </div>
                   <span className="font-mono text-[11px] text-slate-500">{message.timestamp}</span>
                 </div>
@@ -390,15 +595,35 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 
               {/* Streaming Steps Progress (if currently running) */}
               {message.isStreaming && message.steps && message.steps.length > 0 && (
-                <div className="mb-4 p-3 rounded-xl bg-slate-900/80 border border-brand-500/20 space-y-2">
-                  <div className="text-[11px] font-mono uppercase tracking-wider text-brand-400 font-semibold flex items-center gap-2">
-                    <RefreshCw className="w-3 h-3 animate-spin" />
+                <div
+                  className={`mb-4 p-3 rounded-xl bg-slate-900/80 space-y-2 ${
+                    isNewSector
+                      ? 'border border-emerald-500/20'
+                      : 'border border-brand-500/20'
+                  }`}
+                >
+                  <div
+                    className={`text-[11px] font-mono uppercase tracking-wider font-semibold flex items-center gap-2 ${
+                      isNewSector ? 'text-emerald-400' : 'text-brand-400'
+                    }`}
+                  >
+                    <RefreshCw
+                      className={`w-3 h-3 animate-spin ${
+                        isNewSector ? 'text-emerald-400' : ''
+                      }`}
+                    />
                     <span>Real-Time Execution Pipeline</span>
                   </div>
                   <div className="space-y-1.5 text-xs">
                     {message.steps.map((st, i) => (
                       <div key={i} className="flex items-start gap-2">
-                        <span className="text-emerald-400 mt-0.5">●</span>
+                        <span
+                          className={`mt-0.5 ${
+                            isNewSector ? 'text-emerald-400' : 'text-emerald-400'
+                          }`}
+                        >
+                          ●
+                        </span>
                         <div>
                           <span className="font-semibold text-slate-200">{st.title}: </span>
                           <span className="text-slate-400">{st.detail}</span>
@@ -411,18 +636,45 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 
               {/* Message Body (Markdown rendered) */}
               <div
-                className="prose prose-invert prose-custom max-w-none text-sm text-slate-200 leading-relaxed"
+                className={`prose prose-invert prose-custom max-w-none text-sm text-slate-200 leading-relaxed ${
+                  selectedAgentId === 'capital_market_sector' ? 'capital-market-response' : ''
+                }`}
                 dangerouslySetInnerHTML={{
-                  __html: formatMarkdown(message.content),
+                  __html: formatMarkdown(message.content, selectedAgentId === 'capital_market_sector'),
                 }}
               />
+
+              {isNewSector && message.dataFreshness && (
+                <div className="mt-4 flex flex-wrap items-center gap-2 text-[10px] font-mono">
+                  <span className="text-slate-500 uppercase">Data freshness:</span>
+                  {Object.entries(message.dataFreshness).map(([dataset, freshness]) => (
+                    <span
+                      key={dataset}
+                      className={`px-2 py-1 rounded bg-white/5 ${
+                        freshness === 'live'
+                          ? 'text-emerald-300'
+                          : freshness === 'cached' || freshness === 'upstream_snapshot'
+                          ? 'text-amber-300'
+                          : 'text-slate-400'
+                      }`}
+                    >
+                      {dataset.replace(/_/g, ' ')}:{' '}
+                      {freshness === 'upstream_snapshot'
+                        ? 'upstream snapshot (not real-time)'
+                        : freshness}
+                    </span>
+                  ))}
+                </div>
+              )}
 
               {/* Citations Box (Strict Non-Hallucinatory Chain) */}
               {message.citations && message.citations.length > 0 && (
                 <div className="mt-5 pt-3 border-t border-white/10">
                   <div className="text-[11px] font-mono uppercase text-emerald-400 font-semibold mb-2 flex items-center gap-1.5">
                     <ShieldCheck className="w-3.5 h-3.5" />
-                    <span>Verified Official Citations & Provenance</span>
+                    <span>
+                      {isNewSector ? 'Reported Source Metadata' : 'Verified Official Citations & Provenance'}
+                    </span>
                   </div>
                   <div className="grid sm:grid-cols-2 gap-2">
                     {message.citations.map((cite, idx) => (
@@ -430,16 +682,81 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                         key={idx}
                         className="p-2.5 rounded-lg bg-slate-900/60 border border-white/5 text-[11px] font-mono"
                       >
-                        <div className="text-white font-medium truncate">
-                          {cite.authority || cite.source_authority || 'Reserve Bank of India (RBI)'}
-                        </div>
-                        <div className="text-brand-300 text-[10px] truncate mt-0.5">
-                          Table: {cite.table || cite.table_reference}
-                        </div>
-                        <div className="flex items-center justify-between text-slate-400 text-[10px] mt-1">
-                          <span>Period: {cite.period || cite.observation_period || '2024-09'}</span>
-                          <span className="text-emerald-400 font-semibold uppercase">{cite.freshness || 'Verified'}</span>
-                        </div>
+                        {(!isNewSector ||
+                          cite.authority ||
+                          cite.source_authority ||
+                          cite.source_agent) && (
+                          <div className="text-white font-medium truncate">
+                            {cite.authority ||
+                              cite.source_authority ||
+                              (isNewSector ? cite.source_agent : 'Reserve Bank of India (RBI)')}
+                          </div>
+                        )}
+                        {isNewSector && cite.dataset && (
+                          <div className="text-slate-300 text-[10px] truncate mt-0.5">
+                            Dataset: {cite.dataset.replace(/_/g, ' ')}
+                          </div>
+                        )}
+                        {isNewSector && cite.document_title && (
+                          <div className="text-slate-400 text-[10px] truncate mt-0.5">
+                            {cite.document_title}
+                          </div>
+                        )}
+                        {isNewSector && cite.frequency && (
+                          <div className="text-slate-400 text-[10px] truncate mt-0.5">
+                            Frequency: {cite.frequency}
+                            {cite.unit ? ` • Unit: ${cite.unit}` : ''}
+                          </div>
+                        )}
+                        {isNewSector && cite.as_of && (
+                          <div className="text-slate-400 text-[10px] truncate mt-0.5">
+                            Source as of: {cite.as_of}
+                          </div>
+                        )}
+                        {(!isNewSector || cite.table || cite.table_reference) && (
+                          <div
+                            className={`text-[10px] truncate mt-0.5 ${
+                              isNewSector ? 'text-emerald-300' : 'text-brand-300'
+                            }`}
+                          >
+                            Table: {cite.table || cite.table_reference}
+                          </div>
+                        )}
+                        {isNewSector &&
+                          cite.retrieval_url &&
+                          /^https?:\/\//i.test(cite.retrieval_url) && (
+                            <a
+                              href={cite.retrieval_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-cyan-300 text-[10px] truncate block mt-1 hover:underline"
+                            >
+                              View source
+                            </a>
+                          )}
+                        {isNewSector && cite.source_note && (
+                          <div className="text-amber-200/80 text-[10px] mt-1">
+                            {cite.source_note}
+                          </div>
+                        )}
+                        {(!isNewSector || cite.period || cite.observation_period || cite.freshness) && (
+                          <div className="flex items-center justify-between text-slate-400 text-[10px] mt-1">
+                            {(!isNewSector || cite.period || cite.observation_period) && (
+                              <span>
+                                Period: {cite.period || cite.observation_period || '2024-09'}
+                              </span>
+                            )}
+                            {(!isNewSector || cite.freshness) && (
+                              <span
+                                className={`font-semibold uppercase ${
+                                  isNewSector ? '' : 'text-emerald-400'
+                                }`}
+                              >
+                                {cite.freshness || (isNewSector ? '' : 'Verified')}
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -494,7 +811,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       <div className="px-6 py-2 border-t border-white/5 bg-slate-950/40">
         <div className="max-w-4xl mx-auto flex items-center gap-2 overflow-x-auto pb-1 text-xs">
           <span className="text-[11px] font-mono text-slate-500 shrink-0 flex items-center gap-1">
-            <Sparkles className="w-3 h-3 text-brand-400" />
+            <Sparkles className={`w-3 h-3 ${isNewSector ? 'text-emerald-400' : 'text-brand-400'}`} />
             Quick Prompts:
           </span>
           {currentPrompts.map((prompt, idx) => (
@@ -502,7 +819,11 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
               key={idx}
               disabled={isGenerating}
               onClick={() => handleSendMessage(prompt.text)}
-              className="shrink-0 px-3 py-1.5 rounded-lg glass-panel hover:bg-slate-800 text-slate-300 hover:text-white text-xs border border-white/5 transition-all text-left truncate max-w-xs"
+              className={`shrink-0 px-3 py-1.5 rounded-lg glass-panel text-slate-300 hover:text-white text-xs border transition-all text-left truncate max-w-xs ${
+                isNewSector
+                  ? 'hover:bg-emerald-500/10 border-emerald-500/20'
+                  : 'hover:bg-slate-800 border-white/5'
+              }`}
             >
               {prompt.text}
             </button>
@@ -527,9 +848,15 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             placeholder={
               isFinance
                 ? 'Ask Finance Agent strictly about Scheduled Commercial Banks, NPAs, credit growth, rates...'
-                : 'Ask Orchestrator any macroeconomic question (GDP, inflation, policy transmission, cross-sector shocks)...'
+                : isOrchestrator
+                ? 'Ask Orchestrator any macroeconomic question (GDP, inflation, policy transmission, cross-sector shocks)...'
+                : `Ask ${selectedAgent.name} about ${selectedAgent.domain.toLowerCase()}...`
             }
-            className="w-full pl-5 pr-28 py-3.5 bg-surface-elevated/80 border border-white/10 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition-all font-sans disabled:opacity-50"
+            className={`w-full pl-5 pr-28 py-3.5 bg-surface-elevated/80 border border-white/10 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 transition-all font-sans disabled:opacity-50 ${
+              isNewSector
+                ? 'focus:ring-emerald-500/50 focus:border-emerald-500/50'
+                : 'focus:ring-brand-500/50 focus:border-brand-500/50'
+            }`}
           />
 
           <button
@@ -538,7 +865,9 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             className={`absolute right-2 px-4 py-2 rounded-lg text-white text-xs font-semibold shadow-glow-brand transition-all flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed ${
               isFinance
                 ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-glow-emerald'
-                : 'bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 shadow-glow-brand'
+                : isOrchestrator
+                ? 'bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 shadow-glow-brand'
+                : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-glow-emerald'
             }`}
           >
             <span>Ask</span>
@@ -550,9 +879,15 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           <span>
             {isFinance
               ? 'Routing: Direct to Finance Sector (RBI DBIE) • Domain Boundary Enforced'
-              : 'Routing: LangGraph A2A Multi-Agent Graph (All 10 Sectors)'}
+              : isOrchestrator
+              ? 'Routing: LangGraph A2A Multi-Agent Graph (All 10 Sectors)'
+              : `Direct ${selectedAgent.name} workspace • Source and freshness metadata per dataset`}
           </span>
-          <span>Zero Hallucination Guaranteed</span>
+          <span>
+            {isNewSector
+              ? 'Citations and freshness shown only when returned'
+              : 'Zero Hallucination Guaranteed'}
+          </span>
         </div>
       </div>
     </div>
@@ -560,7 +895,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 };
 
 // Helper: Basic Markdown Parser for clean display
-function formatMarkdown(text: string): string {
+function formatMarkdown(text: string, wrapTables = false): string {
   if (!text) return '';
 
   let html = text
@@ -596,7 +931,10 @@ function formatMarkdown(text: string): string {
             return `<tr>${cols}</tr>`;
           })
           .join('');
-        return `<table><thead><tr>${headers}</tr></thead><tbody>${rows}</tbody></table>`;
+        const table = `<table><thead><tr>${headers}</tr></thead><tbody>${rows}</tbody></table>`;
+        return wrapTables
+          ? `<div class="capital-market-table-scroll" role="region" aria-label="Scrollable market data table" tabindex="0">${table}</div>`
+          : table;
       }
     )
     // Bullet lists

@@ -5,6 +5,8 @@ Knowledge Graph APIs, FastMCP Servers, and Standard A2A Protocol Endpoints.
 """
 from __future__ import annotations
 
+import logging
+import math
 from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,6 +24,10 @@ from real_sector.mcp_server import mcp_server as real_mcp
 from real_sector.api.app import app as real_app
 from finance_sector.mcp_server import mcp_server as finance_mcp
 from finance_sector.api.app import app as finance_app
+from external_sector.mcp_server import mcp_server as external_mcp
+from capital_market_sector.mcp_server import mcp_server as capital_market_mcp
+from labour_sector.mcp_server import mcp_server as labour_mcp
+from monetary_sector.mcp_server import mcp_server as monetary_mcp
 
 app = FastAPI(
     title="Macrograph AI — Indian Macroeconomic Intelligence Platform",
@@ -173,14 +179,458 @@ def get_agent_registry() -> Dict[str, Any]:
 import json
 import asyncio
 from fastapi.responses import StreamingResponse
+from core.sector_reasoning import select_relevant_services_with_llm
 from finance_sector.agent import finance_agent_node
 from finance_sector.database import get_connection as get_finance_db
+from external_sector.agent import (
+    _SERVICE_KEYWORDS as _EXTERNAL_SERVICE_KEYWORDS,
+    external_agent_node,
+)
+from external_sector.config import external_settings
+from labour_sector.agent import (
+    _SERVICE_KEYWORDS as _LABOUR_SERVICE_KEYWORDS,
+    labour_agent_node,
+)
+from labour_sector.config import labour_settings
+from capital_market_sector.agent import (
+    _SERVICE_KEYWORDS as _CAPITAL_SERVICE_KEYWORDS,
+    capital_agent_node,
+)
+from capital_market_sector.config import capital_settings
+from monetary_sector.agent import (
+    _SERVICE_KEYWORDS as _MONETARY_SERVICE_KEYWORDS,
+    monetary_agent_node,
+)
+from monetary_sector.config import monetary_settings
 
 
 class ChatMessageRequest(BaseModel):
     message: str = Field(..., description="User query or macroeconomic research question")
-    agent: str = Field(default="orchestrator", description="'orchestrator' or 'finance_sector'")
+    agent: str = Field(
+        default="orchestrator",
+        description=(
+            "'orchestrator', 'finance_sector', 'external_sector', 'labour_sector', "
+            "'capital_market_sector', or 'monetary_sector'"
+        ),
+    )
     scenario_shock: Optional[Dict[str, Any]] = None
+
+
+_DIRECT_SECTOR_CHAT: dict[str, dict[str, Any]] = {
+    "external_sector": {
+        "node": external_agent_node,
+        "service_keywords": _EXTERNAL_SERVICE_KEYWORDS,
+        "api_key": external_settings.SERV_EXT_KEY,
+        "model": external_settings.EXTERNAL_LLM_MODEL,
+        "name": "External Sector & Trade",
+        "data_key": "external_sector_data",
+        "analysis_key": "external_sector_analysis",
+        "citations_key": "external_sector_citations",
+        "errors_key": "external_sector_errors",
+        "freshness_key": "external_sector_freshness",
+        "sections": [
+            ("forex_reserves", "Foreign exchange reserves", [
+                ("Total reserves", "total_reserves_usd_mn", " million USD"),
+                ("Foreign currency assets", "foreign_currency_assets_usd_mn", " million USD"),
+                ("Gold reserves", "gold_reserves_usd_mn", " million USD"),
+            ]),
+            ("trade_balance", "Merchandise trade", [
+                ("Exports", "exports_usd_bn", " billion USD"),
+                ("Imports", "imports_usd_bn", " billion USD"),
+                ("Trade balance", "trade_balance_usd_bn", " billion USD"),
+            ]),
+            ("balance_of_payments", "Balance of payments", [
+                ("Current account balance", "current_account_balance_usd_bn", " billion USD"),
+                ("Current account / GDP", "current_account_to_gdp_pct", "%"),
+                ("Capital account balance", "capital_account_balance_usd_bn", " billion USD"),
+                ("Net balance of payments", "net_bop_usd_bn", " billion USD"),
+            ]),
+            ("exchange_rates", "Exchange rates", [
+                ("USD/INR reference rate", "usd_inr_rate", ""),
+            ]),
+            ("external_flows", "Foreign investment flows", [
+                ("Net FDI", "net_fdi_usd_mn", " million USD"),
+                ("Net FPI", "net_fpi_usd_mn", " million USD"),
+            ]),
+        ],
+    },
+    "labour_sector": {
+        "node": labour_agent_node,
+        "service_keywords": _LABOUR_SERVICE_KEYWORDS,
+        "api_key": labour_settings.LABOUR_LLM_KEY,
+        "model": labour_settings.LABOUR_LLM_MODEL,
+        "name": "Labour & Employment",
+        "data_key": "labour_sector_data",
+        "analysis_key": "labour_sector_analysis",
+        "citations_key": "labour_sector_citations",
+        "errors_key": "labour_sector_errors",
+        "freshness_key": "labour_sector_freshness",
+        "sections": [
+            ("unemployment", "Unemployment", [
+                ("Unemployment rate (UR)", "unemployment_rate_pct", "%"),
+            ]),
+            ("lfpr", "Labour force participation", [
+                ("Labour force participation rate (LFPR)", "lfpr_total_pct", "%"),
+            ]),
+            ("wpr", "Worker population", [
+                ("Worker population ratio (WPR)", "wpr_total_pct", "%"),
+            ]),
+            ("labour_conditions", "Employment conditions", [
+                ("EPFO net additions", "epfo_net_additions_thousands", " thousand"),
+                ("Self-employed share", "self_employed_share_pct", "%"),
+                ("Regular wage/salaried share", "regular_wage_share_pct", "%"),
+                ("Casual labour share", "casual_labour_share_pct", "%"),
+            ]),
+        ],
+    },
+    "capital_market_sector": {
+        "node": capital_agent_node,
+        "service_keywords": _CAPITAL_SERVICE_KEYWORDS,
+        "api_key": capital_settings.CAPITAL_LLM_KEY,
+        "model": capital_settings.CAPITAL_LLM_MODEL,
+        "name": "Capital Markets",
+        "data_key": "capital_market_sector_data",
+        "analysis_key": "capital_market_sector_analysis",
+        "citations_key": "capital_market_sector_citations",
+        "errors_key": "capital_market_sector_errors",
+        "freshness_key": "capital_market_sector_freshness",
+        "sections": [
+            ("nifty_snapshot", "NIFTY 50", [
+                ("Close", "close_price", ""),
+                ("Change", "change_pct", "%"),
+            ]),
+            ("india_vix", "India VIX", [
+                ("Close", "vix_close", ""),
+            ]),
+            ("market_history", "Historical index data", [
+                ("Index", "index_name", ""),
+                ("Close", "close_price", ""),
+                ("Year-over-year return", "yoy_return_pct", "%"),
+                ("P/E", "pe_ratio", ""),
+                ("P/B", "pb_ratio", ""),
+                ("Dividend yield", "dividend_yield_pct", "%"),
+            ]),
+            ("market_breadth", "Market breadth", [
+                ("Advances", "advances_count", ""),
+                ("Declines", "declines_count", ""),
+                ("Unchanged", "unchanged_count", ""),
+                ("Advance/decline ratio", "advance_decline_ratio", ""),
+            ]),
+            ("gsec_yields", "Government security yields", [
+                ("10-year G-Sec yield", "ten_year_gsec_yield_pct", "%"),
+                ("5-year G-Sec yield", "five_year_gsec_yield_pct", "%"),
+                ("2-year G-Sec yield", "two_year_gsec_yield_pct", "%"),
+                ("2s10s spread", "yield_curve_spread_2s10s_bps", " bps"),
+            ]),
+        ],
+    },
+    "monetary_sector": {
+        "node": monetary_agent_node,
+        "service_keywords": _MONETARY_SERVICE_KEYWORDS,
+        "api_key": monetary_settings.MONETARY_LLM_KEY,
+        "model": monetary_settings.MONETARY_LLM_MODEL,
+        "name": "Monetary & Liquidity",
+        "data_key": "monetary_sector_data",
+        "analysis_key": "monetary_sector_analysis",
+        "citations_key": "monetary_sector_citations",
+        "errors_key": "monetary_sector_errors",
+        "freshness_key": "monetary_sector_freshness",
+        "sections": [
+            ("policy_rates", "Policy rates", [
+                ("Repo rate", "repo_rate_pct", "%"),
+                ("Standing Deposit Facility (SDF)", "sdf_rate_pct", "%"),
+                ("Marginal Standing Facility (MSF)", "msf_rate_pct", "%"),
+                ("Cash Reserve Ratio (CRR)", "crr_pct", "%"),
+                ("Statutory Liquidity Ratio (SLR)", "slr_pct", "%"),
+            ]),
+            ("money_supply", "Money supply", [
+                ("M3", "m3_cr", " crore"),
+                ("M3 year-over-year growth", "m3_yoy_pct", "%"),
+            ]),
+            ("system_liquidity", "System liquidity", [
+                ("Net LAF absorption / injection", "net_laf_absorption_cr", " crore"),
+                ("Liquidity condition", "liquidity_condition", ""),
+            ]),
+            ("monetary_stance", "Monetary stance", [
+                ("Official stance label", "stance_label", ""),
+                ("Real policy rate", "real_policy_rate_pct", "%"),
+                ("M3 growth", "m3_growth_pct", "%"),
+                ("System liquidity status", "system_liquidity_status", ""),
+            ]),
+        ],
+    },
+}
+
+
+def _has_sector_value(value: Any) -> bool:
+    if isinstance(value, (int, float)) and not math.isfinite(value):
+        return False
+    return value is not None and not (
+        isinstance(value, str) and value.strip().lower() in {"", "unknown", "unavailable"}
+    )
+
+
+def _format_sector_report(
+    config: dict[str, Any],
+    data_context: dict[str, Any],
+    freshness: dict[str, Any] | None = None,
+    citations: list[dict[str, Any]] | None = None,
+) -> str:
+    freshness = freshness or {}
+    citations = citations or []
+    lines = [
+        "### Latest observations",
+        "",
+        "| Indicator | Observation | Period | Freshness | Source |",
+        "|---|---:|---|---|---|",
+    ]
+    takeaway_rows: list[tuple[str, str]] = []
+    for section_key, section_title, fields in config["sections"]:
+        if section_key not in data_context:
+            continue
+        section = data_context.get(section_key)
+        if isinstance(section, dict):
+            period = section.get("period")
+            period_label = str(period) if _has_sector_value(period) else "Unavailable"
+            citation = next(
+                (item for item in citations if item.get("dataset") == section_key),
+                {},
+            )
+            source = citation.get("source_authority") or "Unavailable"
+            freshness_label = str(freshness.get(section_key, citation.get("freshness", "unavailable")))
+            for label, field_key, unit in fields:
+                value = section.get(field_key)
+                rendered_value = f"{value}{unit}" if _has_sector_value(value) else "Unavailable"
+                lines.append(
+                    f"| {label} | {rendered_value} | {period_label} | "
+                    f"{freshness_label} | {source} |"
+                )
+            has_section_observation = any(
+                _has_sector_value(section.get(field_key))
+                for _, field_key, _ in fields
+            )
+            if not has_section_observation:
+                continue
+            if section_key == "trade_balance":
+                trade_balance = section.get("trade_balance_usd_bn")
+                if isinstance(trade_balance, (int, float)) and trade_balance < 0:
+                    takeaway_rows.append((
+                        "Merchandise trade balance is negative",
+                        "Imports exceeded exports in the reported period; this describes goods trade, not the full current account.",
+                    ))
+                elif isinstance(trade_balance, (int, float)) and trade_balance > 0:
+                    takeaway_rows.append((
+                        "Merchandise trade balance is positive",
+                        "Exports exceeded imports in the reported period; this describes goods trade, not the full current account.",
+                    ))
+            elif section_key == "exchange_rates" and _has_sector_value(section.get("usd_inr_rate")):
+                takeaway_rows.append((
+                    "USD/INR is quoted as rupees per U.S. dollar",
+                    "A single observation establishes the reference level for that date; compare other dates from the same series to assess movement.",
+                ))
+            else:
+                takeaway_rows.append((
+                    f"{section_title} is reported for {period_label}",
+                    "The observation describes that period; by itself it does not establish a longer-term trend or its cause.",
+                ))
+
+    if not lines or len(lines) == 4:
+        lines.extend(["", "| Observation | Detail |", "|---|---|", "| Data availability | No usable observations were returned for the selected datasets. |"])
+    lines.extend([
+        "",
+        "### Take-aways",
+        "",
+        "| Insight | Implication |",
+        "|---|---|",
+    ])
+    if takeaway_rows:
+        lines.extend(f"| {insight} | {implication} |" for insight, implication in takeaway_rows)
+    else:
+        lines.append("| Data unavailable | There are no observations to interpret. |")
+    lines.extend([
+        "",
+        "Model-generated analysis was unavailable; take-aways are limited to direct interpretation of the returned observations.",
+    ])
+    return "\n".join(lines)
+
+
+def _sector_chat_response(target: str, node_result: dict[str, Any]) -> dict[str, Any]:
+    config = _DIRECT_SECTOR_CHAT[target]
+    data_context = node_result.get(config["data_key"]) or {}
+    if not isinstance(data_context, dict):
+        data_context = {}
+    freshness = node_result.get(config["freshness_key"]) or {}
+    raw_errors = node_result.get(config["errors_key"]) or []
+    errors = raw_errors if isinstance(raw_errors, list) else [str(raw_errors)]
+    raw_citations = node_result.get(config["citations_key"]) or []
+    citations = [
+        {
+            "source_agent": citation["source_agent"],
+            "authority": citation.get("source_authority"),
+            "source_authority": citation.get("source_authority"),
+            "document_title": citation.get("document_title"),
+            "table": citation.get("table_reference"),
+            "table_reference": citation.get("table_reference"),
+            "retrieval_url": citation.get("retrieval_url"),
+            "source_base_url": citation.get("source_base_url"),
+            "source_note": citation.get("source_note"),
+            "as_of": citation.get("as_of"),
+            "frequency": citation.get("frequency"),
+            "unit": citation.get("unit"),
+            "period": citation.get("observation_period"),
+            "observation_period": citation.get("observation_period"),
+            "freshness": citation.get("freshness"),
+            "dataset": citation.get("dataset"),
+        }
+        for citation in raw_citations
+        if isinstance(citation, dict) and citation.get("source_agent")
+    ]
+    report = node_result.get(config["analysis_key"])
+    if not isinstance(report, str) or not report.strip():
+        report = _format_sector_report(config, data_context, freshness, citations)
+    else:
+        report = report.strip()
+
+    reasoning_errors = [
+        error for error in errors
+        if isinstance(error, str) and error.startswith("LLM reasoning unavailable:")
+    ]
+    retrieval_errors = [error for error in errors if error not in reasoning_errors]
+    if reasoning_errors:
+        report += "\n\nAnalysis note: The configured LLM could not provide a narrative interpretation."
+    if retrieval_errors:
+        report += "\n\n### Data retrieval issues\n\n" + "\n".join(f"- {error}" for error in retrieval_errors)
+
+    available_values = []
+    for section_key, _, fields in config["sections"]:
+        if section_key not in data_context:
+            continue
+        section = data_context.get(section_key)
+        available_values.extend(
+            _has_sector_value(section.get(field_key)) if isinstance(section, dict) else False
+            for _, field_key, _ in fields
+        )
+    has_values = any(available_values)
+    status = (
+        "unavailable"
+        if not has_values
+        else "partial"
+        if errors or not all(available_values)
+        else "completed"
+    )
+
+    return {
+        "status": status,
+        "agent_routed": f"{config['name']} Specialist",
+        "full_report": report,
+        "data_context": data_context,
+        "freshness": freshness,
+        "errors": errors,
+        "citations": citations,
+    }
+
+
+async def _run_direct_sector_chat(
+    target: str,
+    message: str,
+    *,
+    selected_services: set[str] | None = None,
+    selection_error: str | None = None,
+) -> dict[str, Any]:
+    config = _DIRECT_SECTOR_CHAT[target]
+    try:
+        state: dict[str, Any] = {"query": message}
+        if selected_services is not None:
+            state["_selected_services"] = selected_services
+            state["_selection_error"] = selection_error
+        node_result = await config["node"](state)
+    except Exception as exc:
+        logging.getLogger(__name__).exception("Direct %s chat agent failed", target)
+        return {
+            "status": "failed",
+            "agent_routed": f"{config['name']} Specialist",
+            "full_report": (
+                f"### {config['name']} Request Failed\n\n"
+                f"The sector agent could not complete this request: {exc}. "
+                "No observations are available."
+            ),
+            "data_context": {},
+            "freshness": {},
+            "errors": [str(exc)],
+            "citations": [],
+        }
+    return _sector_chat_response(target, node_result)
+
+
+def _sector_progress_events(
+    target: str,
+    selected_services: set[str],
+    selection_error: str | None,
+) -> list[dict[str, Any]]:
+    config = _DIRECT_SECTOR_CHAT[target]
+    events = [{
+        "type": "step",
+        "step": 1,
+        "agent": target,
+        "title": f"Targeting {config['name']} Specialist",
+        "detail": "Invoking the selected sector agent directly, without Orchestrator routing.",
+    }]
+    if selection_error:
+        events.append({
+            "type": "step",
+            "step": 2,
+            "agent": target,
+            "title": "Resolving query-relevant data",
+            "detail": f"Service selection reported an issue: {selection_error}",
+        })
+    elif selected_services:
+        events.append({
+            "type": "step",
+            "step": 2,
+            "agent": target,
+            "title": "Matched query-relevant data",
+            "detail": "Selected: " + ", ".join(
+                service.replace("_", " ") for service in config["service_keywords"]
+                if service in selected_services
+            ),
+        })
+    else:
+        events.append({
+            "type": "step",
+            "step": 2,
+            "agent": target,
+            "title": "No matching sector dataset",
+            "detail": "The available sector indicators do not explicitly match this query.",
+        })
+
+    step = len(events) + 1
+    for service in config["service_keywords"]:
+        if service not in selected_services:
+            continue
+        events.append({
+            "type": "step",
+            "step": step,
+            "agent": target,
+            "tool": service,
+            "title": f"Retrieving {service.replace('_', ' ')}",
+            "detail": (
+                "Fetching only this query-selected dataset through the sector client; "
+                "availability, source freshness, and cache fallback will be reported."
+            ),
+        })
+        step += 1
+
+    events.append({
+        "type": "step",
+        "step": step,
+        "agent": target,
+        "title": "Preparing evidence-based explanation",
+        "detail": (
+            "After retrieval, the specialist will explain the result, key takeaways, "
+            "source periods, and any limitations."
+        ),
+    })
+    return events
 
 
 @app.get("/api/v1/dashboard/overview", tags=["Dashboard"])
@@ -444,6 +894,49 @@ async def stream_chat(request: ChatMessageRequest):
             }
             yield f"data: {json.dumps(done_payload)}\n\n"
 
+        elif target in _DIRECT_SECTOR_CHAT:
+            sector_config = _DIRECT_SECTOR_CHAT[target]
+            selected_services, selection_error = await select_relevant_services_with_llm(
+                query=msg,
+                service_keywords=sector_config["service_keywords"],
+                api_key=sector_config["api_key"],
+                model=sector_config["model"],
+            )
+            for progress_event in _sector_progress_events(
+                target,
+                selected_services,
+                selection_error,
+            ):
+                yield f"data: {json.dumps(progress_event)}\n\n"
+                await asyncio.sleep(0.15)
+
+            sector_response = await _run_direct_sector_chat(
+                target,
+                msg,
+                selected_services=selected_services,
+                selection_error=selection_error,
+            )
+            report_text = sector_response["full_report"]
+            words = report_text.split()
+            for index in range(0, len(words), 5):
+                chunk = " ".join(words[index:index + 5]) + " "
+                yield f"data: {json.dumps({'type': 'token', 'text': chunk})}\n\n"
+                await asyncio.sleep(0.03)
+
+            done_payload = {
+                "type": "done",
+                "agent_routed": sector_response["agent_routed"],
+                "full_report": report_text,
+                "data_context": sector_response["data_context"],
+                "freshness": sector_response["freshness"],
+                "errors": sector_response["errors"],
+                "citations": sector_response["citations"],
+                "mermaid_diagram": "",
+                "confidence_score": None,
+                "status": sector_response["status"],
+            }
+            yield f"data: {json.dumps(done_payload)}\n\n"
+
         else:
             # Multi-agent orchestrator route
             yield f"data: {json.dumps({'type': 'step', 'step': 1, 'agent': 'orchestrator', 'title': 'Orchestrator Decomposing Query', 'detail': 'Analyzing question semantics, identifying domain boundaries across 10 sectors...'})}\n\n"
@@ -514,6 +1007,8 @@ async def sync_chat(request: ChatMessageRequest) -> Dict[str, Any]:
             "freshness": f_freshness,
             "citations": _build_finance_citations(d_context, f_freshness),
         }
+    elif target in _DIRECT_SECTOR_CHAT:
+        return await _run_direct_sector_chat(target, request.message)
     else:
         initial_state = {
             "query": request.message,
@@ -534,4 +1029,3 @@ async def sync_chat(request: ChatMessageRequest) -> Dict[str, Any]:
             "observations": final_state.get("collected_observations", []),
             "mermaid_diagram": final_state.get("mermaid_diagram", ""),
         }
-

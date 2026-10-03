@@ -30,6 +30,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   user,
   onLogout,
 }) => {
+  const activeAgentCount = SECTOR_AGENTS.filter((agent) => agent.status === 'active').length;
+
   return (
     <aside className="w-72 h-screen flex flex-col bg-slate-950/90 border-r border-white/5 backdrop-blur-xl shrink-0 select-none">
       {/* Brand Header */}
@@ -108,7 +110,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <span>Macro Agents</span>
         </div>
         <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-          2 Active
+          {activeAgentCount} Active
         </span>
       </div>
 
@@ -118,7 +120,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           const isSelected = selectedAgentId === agent.id;
           const isOrchestrator = agent.id === 'orchestrator';
           const isFinance = agent.id === 'finance_sector';
-          const isSelectable = isOrchestrator || isFinance;
+          const isAdditionalSector = [
+            'external_sector',
+            'capital_market_sector',
+            'labour_sector',
+            'monetary_sector',
+          ].includes(agent.id);
+          const isSelectable = agent.status === 'active';
 
           return (
             <div
@@ -133,7 +141,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 isSelectable ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'
               } ${
                 isSelected
-                  ? 'bg-slate-800/90 border border-brand-500/50 shadow-glow-brand/20'
+                  ? isAdditionalSector
+                    ? 'bg-slate-800/90 border border-emerald-500/50 shadow-glow-emerald/20'
+                    : 'bg-slate-800/90 border border-brand-500/50 shadow-glow-brand/20'
                   : isSelectable
                   ? 'bg-slate-900/40 hover:bg-slate-800/60 border border-white/5 hover:border-white/10'
                   : 'bg-slate-950/40 border border-transparent'
@@ -172,8 +182,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <div className="flex items-center gap-1">
                     <span
                       className={`w-2 h-2 rounded-full ${
-                        isFinance ? 'bg-emerald-400 animate-pulse' : 'bg-brand-400'
+                        isFinance
+                          ? 'bg-emerald-400 animate-pulse'
+                          : isAdditionalSector
+                          ? 'bg-emerald-400'
+                          : isOrchestrator
+                          ? 'bg-brand-400'
+                          : ''
                       }`}
+                      style={{
+                        backgroundColor:
+                          isOrchestrator || isFinance || isAdditionalSector || !isSelectable
+                            ? undefined
+                            : agent.color,
+                      }}
                     />
                     <ChevronRight className="w-3.5 h-3.5 text-slate-500 group-hover:text-slate-300 transition-colors" />
                   </div>
@@ -189,6 +211,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <div className="mt-1.5 flex items-center gap-1 text-[9px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
                   <CheckCircle2 className="w-2.5 h-2.5" />
                   <span>Real RBI DBIE Data Active</span>
+                </div>
+              )}
+              {isAdditionalSector && (
+                <div className="mt-1.5 flex items-center gap-1 text-[9px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                  <CheckCircle2 className="w-2.5 h-2.5" />
+                  <span>Direct Sector Agent • Source freshness per response</span>
                 </div>
               )}
             </div>
