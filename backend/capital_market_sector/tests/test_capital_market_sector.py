@@ -1,121 +1,124 @@
+"""Pytest test suite for the Capital Markets Sector."""
 from __future__ import annotations
 
-import asyncio
-from pathlib import Path
-import sys
-import unittest
+import json
+from datetime import datetime, timezone
+import pytest
+import httpx
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
-from fastapi.testclient import TestClient
-
-from capital_market_sector.clients.market_data_client import CapitalMarketsDataClient
-from capital_market_sector.agents.executor import CapitalMarketsAgentExecutor
-from capital_market_sector.agents.tools import SectorToolRegistry
-from capital_market_sector.api.app import create_app
-from capital_market_sector.protocols.a2a_protocol import EventQueue, RequestContext, TaskRequest, TaskStatus
-from capital_market_sector.protocols.mcp_protocol import handle_mcp_rpc
+from capital_market_sector.models import (
+    Citation,
+    DataFreshness,
+    GSecYieldRecord,
+    IndiaVixRecord,
+    NiftySnapshotRecord,
+    UnavailableResponse,
+)
 
 
-class CapitalMarketSectorTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.client = CapitalMarketsDataClient()
+@pytest.fixture
+def valid_citation() -> Citation:
+    return Citation(
+        source_authority="National Stock Exchange of India (NSE)",
+        document_title="NSE Capital Market Daily Bhavcopy",
+        table_reference="capital_market_sector.nifty_50_bhavcopy",
+        retrieval_url="https://mcp.nseindia.in/bhavcopy/cm/mcp",
+        observation_period="2024-09-30",
+        freshness=DataFreshness.LIVE,
+    )
 
-    def test_all_five_capital_market_fetchers(self) -> None:
-        nifty = self.client.get_nifty_50()
-        sensex = self.client.get_sensex()
-        vix = self.client.get_india_vix()
-        earnings = self.client.get_corporate_earnings()
-        primary = self.client.get_primary_market_activity()
-        flows = self.client.get_mf_flows()
 
-        self.assertFalse(nifty.empty)
-        self.assertEqual(nifty["indicator_name"].iloc[-1], "NIFTY 50")
-        self.assertIn("value", nifty.columns)
+@pytest.fixture
+def temp_db(tmp_path, monkeypatch):
+    db_path = tmp_path / "test_capital.duckdb"
+    monkeypatch.setattr("capital_market_sector.database._DB_PATH", db_path)
+    from capital_market_sector import database
+    database._DB_PATH = db_path
+    database.initialise_schema(seed_baseline=False)
+    yield db_path
 
-        self.assertFalse(sensex.empty)
-        self.assertEqual(sensex["indicator_name"].iloc[-1], "SENSEX")
-        self.assertIn("value", sensex.columns)
 
-        self.assertFalse(vix.empty)
-        self.assertEqual(vix["indicator_name"].iloc[-1], "India VIX")
-        self.assertIn("value", vix.columns)
+class TestCapitalMarketModels:
+    def test_nifty_record(self, valid_citation):
+        rec = NiftySnapshotRecord(
+            period="2024-09-30",
+            index_name="NIFTY 50",
+            close_price=25810.85,
+            citation=valid_citation,
+        )
+        assert rec.close_price == 25810.85
 
-        self.assertFalse(earnings.empty)
-        self.assertTrue((earnings["indicator_name"].isin(["EPS", "PAT (Billion INR)"])).all())
+    def test_sector_ownership_boundary(self, valid_citation):
+        """Capital Markets cannot own USD/INR (External sector owns USD/INR)."""
+        rec = NiftySnapshotRecord(
+            period="2024-09-30",
+            index_name="NIFTY 50",
+            close_price=25810.85,
+            citation=valid_citation,
+        )
+        assert not hasattr(rec, "usd_inr_rate")
 
-        self.assertFalse(primary.empty)
-        self.assertTrue((primary["indicator_name"].isin(["IPO Count", "Debt Issuance (INR Crore)"])).all())
 
-        self.assertFalse(flows.empty)
-        self.assertTrue((flows["indicator_name"].isin(["Equity Net Flow", "DII Net Purchase"])).all())
+@pytest.mark.asyncio
+async def test_agent_uses_finance_compatible_reasoning_model(monkeypatch):
+    from capital_market_sector import agent
 
-    def test_mcp_tools_export_and_rpc(self) -> None:
-        registry = SectorToolRegistry(self.client)
-        mcp_tools = registry.mcp_tools()
-        self.assertEqual(len(mcp_tools), 5)
-        names = {t.name for t in mcp_tools}
-        self.assertEqual(names, {
-            "get_equity_snapshot",
-            "get_vix_snapshot",
-            "get_earnings_snapshot",
-            "get_primary_market_snapshot",
-            "get_mf_flows_snapshot",
-        })
+    observed = {}
 
-        resp = handle_mcp_rpc({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, registry)
-        self.assertEqual(len(resp["result"]["tools"]), 5)
+    async def select_nifty(**_kwargs):
+        return {"nifty_snapshot"}, None
 
-        call_resp = handle_mcp_rpc({
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "tools/call",
-            "params": {"name": "get_equity_snapshot", "arguments": {"include_source_metadata": True}}
-        }, registry)
-        self.assertFalse(call_resp["result"]["isError"])
-        self.assertIn("agent", call_resp["result"]["content"][0]["text"])
+    async def fetch_nifty():
+        return [{
+            "period": "2026-10-02",
+            "close_price": 25000.0,
+            "citation": {"freshness": "upstream_snapshot"},
+        }]
 
-    def test_a2a_agent_card_and_executor(self) -> None:
-        executor = CapitalMarketsAgentExecutor(self.client)
-        card = executor.get_agent_card()
-        self.assertEqual(card.name, "Capital Markets Macroeconomic Agent")
-        self.assertEqual(len(card.skills), 5)
+    async def capture_reasoning(**kwargs):
+        observed.update(kwargs)
+        return "NIFTY 50 closed at 25,000 points."
 
-        async def run_task() -> object:
-            task_request = TaskRequest(
-                query="Please analyze NIFTY 50 and VIX",
-                skills_required=["equity_market_analysis"]
-            )
-            ctx = RequestContext(task_id=task_request.task_id, request=task_request)
-            q = EventQueue()
-            return await executor.execute(ctx, q)
+    monkeypatch.setattr(agent, "select_relevant_services_with_llm", select_nifty)
+    monkeypatch.setitem(agent._FETCHERS, "nifty_snapshot", fetch_nifty)
+    monkeypatch.setattr(agent, "reason_over_sector_data", capture_reasoning)
 
-        task_res = asyncio.run(run_task())
-        self.assertEqual(task_res.status, TaskStatus.COMPLETED)
-        self.assertEqual(len(task_res.artifacts), 2)
+    await agent.capital_agent_node({"query": "NIFTY 50 latest close"})
 
-    def test_fastapi_endpoints(self) -> None:
-        app = create_app(self.client)
-        tc = TestClient(app)
+    assert observed["model"] == "openai/gpt-oss-120b"
 
-        resp = tc.get("/.well-known/agent.json")
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json()["name"], "Capital Markets Macroeconomic Agent")
 
-        task_payload = {
-            "query": "Check NIFTY 50 and VIX levels",
-            "skills_required": ["equity_market_analysis", "volatility_analysis"]
+class TestCapitalMarketDatabase:
+    def test_upsert_and_query_nifty(self, temp_db, valid_citation):
+        from capital_market_sector import database
+        row = {
+            "period": "2024-09-30",
+            "index_name": "NIFTY 50",
+            "open_price": 25820.0,
+            "high_price": 25950.0,
+            "low_price": 25780.0,
+            "close_price": 25810.85,
+            "change_points": 35.5,
+            "change_pct": 0.14,
+            "volume_shares": 350000000.0,
+            "turnover_cr": 45000.0,
+            "citation": valid_citation.model_dump_json(),
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
         }
-        resp = tc.post("/a2a/tasks", json=task_payload)
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json()["status"], "completed")
+        written = database.upsert_rows("nifty_snapshot", [row])
+        assert written == 1
 
-        mcp_req = {"jsonrpc": "2.0", "id": 9, "method": "tools/list"}
-        resp = tc.post("/mcp", json=mcp_req)
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(len(resp.json()["result"]["tools"]), 5)
+        rows = database.query_latest_rows("nifty_snapshot", 10)
+        assert len(rows) == 1
+        assert rows[0]["close_price"] == 25810.85
 
 
-if __name__ == "__main__":
-    unittest.main()
+class TestCapitalMarketAPI:
+    @pytest.mark.asyncio
+    async def test_health_endpoint(self):
+        from httpx import AsyncClient, ASGITransport
+        from capital_market_sector.api.app import app
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            res = await ac.get("/health")
+        assert res.status_code == 200
+        assert res.json()["sector"] == "capital_market_sector"
