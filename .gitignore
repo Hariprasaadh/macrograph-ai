@@ -1,5 +1,4 @@
 # Dependencies
-node_modules/
 frontend/node_modules/
 .venv/
 env/
@@ -56,3 +55,6 @@ Thumbs.db
 *.egg-info/
 .eggs/
 develop-eggs/
+
+node_modules/
+package-lock.json/
