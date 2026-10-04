@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Landmark,
   ShieldCheck,
@@ -12,11 +12,15 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { DashboardOverview } from '../types';
+import { TiltCard } from './motion/TiltCard';
+import { useGsapPage } from '../hooks/useGsapPage';
 
 export const DashboardView: React.FC = () => {
   const [data, setData] = useState<DashboardOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  useGsapPage(rootRef, [loading]);
 
   const fetchDashboardData = async (signal?: AbortSignal) => {
     setLoading(true);
@@ -87,9 +91,9 @@ export const DashboardView: React.FC = () => {
   const deposits = finance?.deposits_cd_ratio;
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-8 bg-background selection:bg-brand-500/30 selection:text-cyan-200">
+    <div ref={rootRef} className="flex-1 overflow-y-auto p-6 md:p-8 space-y-8 bg-background selection:bg-brand-500/30 selection:text-cyan-200">
       {/* Top banner / header */}
-      <div className="p-6 rounded-3xl mesh-card border border-white/10 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xl">
+      <div data-entrance className="p-6 rounded-3xl mesh-card mesh-beam border border-white/10 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xl">
         <div>
           <div className="flex items-center gap-2 mb-1.5">
             <span className="px-3 py-1 rounded-full text-[11px] font-mono font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 flex items-center gap-1.5 shadow-sm">
@@ -130,10 +134,11 @@ export const DashboardView: React.FC = () => {
         </div>
       )}
 
-      {/* Top KPI metric cards */}
+      {/* Top KPI metric cards — 3D tilt depth */}
       <div className="cv-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Credit Growth */}
-        <div className="p-5 rounded-2xl mesh-card relative overflow-hidden group">
+        <TiltCard label="Non-food bank credit" maxTilt={6}>
+        <div className="reveal-gsap p-5 rounded-2xl mesh-card relative overflow-hidden group h-full">
           <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
             <span>Non-Food Bank Credit</span>
             <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
@@ -154,9 +159,11 @@ export const DashboardView: React.FC = () => {
             Gross Credit: <strong className="text-slate-300 font-mono">{formatLakhCr(credit?.gross_credit_cr)}</strong>
           </div>
         </div>
+        </TiltCard>
 
         {/* Asset Quality / GNPA */}
-        <div className="p-5 rounded-2xl mesh-card relative overflow-hidden group">
+        <TiltCard label="Gross NPA asset quality" maxTilt={6}>
+        <div className="reveal-gsap p-5 rounded-2xl mesh-card relative overflow-hidden group h-full">
           <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
             <span>Gross NPA (SCBs)</span>
             <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
@@ -176,9 +183,11 @@ export const DashboardView: React.FC = () => {
             CRAR: <strong className="text-slate-300 font-mono">{formatPct(asset?.crar_pct)}</strong> (CET-1: {formatPct(asset?.cet1_pct)})
           </div>
         </div>
+        </TiltCard>
 
         {/* Rate Structure / WALR */}
-        <div className="p-5 rounded-2xl mesh-card relative overflow-hidden group">
+        <TiltCard label="Lending rate structure" maxTilt={6}>
+        <div className="reveal-gsap p-5 rounded-2xl mesh-card relative overflow-hidden group h-full">
           <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
             <span>Fresh Lending Rate (WALR)</span>
             <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
@@ -198,9 +207,11 @@ export const DashboardView: React.FC = () => {
             Outstanding WALR: <strong className="text-slate-300 font-mono">{formatPct(rates?.walr_outstanding_pct)}</strong>
           </div>
         </div>
+        </TiltCard>
 
         {/* Deposits & CD Ratio */}
-        <div className="p-5 rounded-2xl mesh-card relative overflow-hidden group">
+        <TiltCard label="Aggregate deposits" maxTilt={6}>
+        <div className="reveal-gsap p-5 rounded-2xl mesh-card relative overflow-hidden group h-full">
           <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
             <span>Aggregate Deposits</span>
             <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20">
@@ -221,13 +232,14 @@ export const DashboardView: React.FC = () => {
             CASA Ratio: <strong className="text-slate-300 font-mono">{formatPct(deposits?.casa_ratio_pct)}</strong>
           </div>
         </div>
+        </TiltCard>
       </div>
 
 
       {/* Main Analytical Visuals Grid */}
       <div className="cv-auto grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
         {/* Visual 1: Sectoral Deployment of Bank Credit */}
-        <div className="p-6 rounded-2xl glass-panel border border-white/5 space-y-5">
+        <div className="reveal-gsap p-6 rounded-2xl glass-panel border border-white/5 space-y-5">
           <div className="flex items-center justify-between">
             <div>
               <p className="mesh-eyebrow text-emerald-400/80 mb-1.5">_01/ Credit deployment_</p>
@@ -336,7 +348,7 @@ export const DashboardView: React.FC = () => {
         </div>
 
         {/* Visual 2: SCB Asset Quality & Health Gauges */}
-        <div className="p-6 rounded-2xl glass-panel border border-white/5 space-y-5">
+        <div className="reveal-gsap p-6 rounded-2xl glass-panel border border-white/5 space-y-5">
           <div className="flex items-center justify-between">
             <div>
               <p className="mesh-eyebrow text-cyan-400/80 mb-1.5">_02/ Asset quality_</p>
@@ -405,7 +417,7 @@ export const DashboardView: React.FC = () => {
         </div>
 
         {/* Visual 3: Interest Rate Structure & Transmission */}
-        <div className="p-6 rounded-2xl glass-panel border border-white/5 space-y-4">
+        <div className="reveal-gsap p-6 rounded-2xl glass-panel border border-white/5 space-y-4">
           <div className="flex items-center justify-between">
             <div>
               <p className="mesh-eyebrow text-indigo-300/80 mb-1.5">_03/ Rate transmission_</p>
@@ -447,7 +459,7 @@ export const DashboardView: React.FC = () => {
         </div>
 
         {/* Visual 4: Deposits & Liquidity Dynamics */}
-        <div className="p-6 rounded-2xl glass-panel border border-white/5 space-y-4">
+        <div className="reveal-gsap p-6 rounded-2xl glass-panel border border-white/5 space-y-4">
           <div className="flex items-center justify-between">
             <div>
               <p className="mesh-eyebrow text-amber-300/80 mb-1.5">_04/ Deposits & liquidity_</p>
@@ -504,7 +516,7 @@ export const DashboardView: React.FC = () => {
       </div>
 
       {/* Verified Provenance & Citation Audit Table */}
-      <div className="p-6 rounded-2xl glass-panel border border-white/10 space-y-4">
+      <div className="reveal-gsap p-6 rounded-2xl glass-panel border border-white/10 space-y-4">
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-base font-semibold text-white flex items-center gap-2">

@@ -163,7 +163,9 @@ async def reason_over_sector_data(
                         "it makes comparisons clearer, followed by 2-5 specific key takeaways with "
                         "short explanations/implications. Tables are optional when prose is clearer; "
                         "never make the response tables-only or repeat the same full explanation in a "
-                        "table. Add a brief limitations note when needed. Keep the answer focused, but "
+                        "table. In any observations table, NEVER use 'Same as above', 'ditto', or similar "
+                        "abbreviations; state the explicit source and freshness in every row. "
+                        "Add a brief limitations note when needed. Keep the answer focused, but "
                         "provide enough detail to explain the result. Do not include raw JSON, code "
                         "fences, invented citations, or unrelated sector context."
                     ),

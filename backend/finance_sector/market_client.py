@@ -155,9 +155,7 @@ async def fetch_banking_market_indicators() -> BankingMarketResponse:
 def _get_tavily_key() -> str | None:
     return (
         finance_settings.TVLY_KEY_1
-        or finance_settings.TAVILY_API_KEY
         or os.getenv("TVLY_KEY_1")
-        or os.getenv("TAVILY_API_KEY")
     )
 
 

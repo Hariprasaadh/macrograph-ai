@@ -19,6 +19,10 @@ import {
   X,
 } from 'lucide-react';
 import { SECTOR_AGENTS } from '../data/agents';
+import { ParallaxHero } from './motion/ParallaxHero';
+import { Marquee3D } from './motion/Marquee3D';
+import { TiltCard } from './motion/TiltCard';
+import { useGsapPage, useScrollProgress } from '../hooks/useGsapPage';
 
 // UI-only scroll reveal: transform/opacity, respects reduced-motion, no data logic
 const useRevealOnScroll = () => {
@@ -83,6 +87,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [heroIndex, setHeroIndex] = useState(0);
   const revealRef = useRevealOnScroll();
+  const progressRef = useRef<HTMLDivElement>(null);
+  useGsapPage(revealRef);
+  useScrollProgress(progressRef);
 
   useEffect(() => {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
@@ -129,14 +136,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
   return (
     <div ref={revealRef} className="min-h-screen bg-background text-slate-100 relative overflow-hidden bg-grid-pattern selection:bg-brand-500/30 selection:text-cyan-200">
+      <div ref={progressRef} className="scrolly-progress" aria-hidden="true" />
       <a href="#main-hero" className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[100] focus:px-4 focus:py-2 focus:rounded-lg focus:bg-cyan-500 focus:text-black focus:text-sm focus:font-semibold">
         Skip to content
       </a>
-      {/* Ambient background glows */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1200px] h-[650px] bg-radial-gradient pointer-events-none" />
-      <div className="absolute top-40 right-[-15%] w-[600px] h-[600px] bg-brand-500/10 rounded-full blur-[150px] pointer-events-none" />
-      <div className="absolute top-96 left-[-15%] w-[600px] h-[600px] bg-accent-cyan/10 rounded-full blur-[150px] pointer-events-none" />
-      <div className="absolute bottom-10 right-1/4 w-[500px] h-[500px] bg-purple-600/10 rounded-full blur-[160px] pointer-events-none" />
+      {/* Ambient parallax depth layers (decorative only) */}
+      <ParallaxHero />
 
       {/* Announcement bar — UI only */}
       <div className="relative z-50 bg-gradient-to-r from-brand-600/20 via-cyan-500/15 to-brand-600/20 border-b border-white/[0.08]">
@@ -258,14 +263,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       {/* Hero Section */}
       <section id="main-hero" className="pt-16 sm:pt-24 pb-16 sm:pb-20 px-6 max-w-7xl mx-auto relative z-10 text-center">
         {/* Pill announcement badge */}
-        <div className="inline-flex items-center gap-2.5 px-4 py-1.5 rounded-full mesh-glow-pill text-cyan-300 text-xs font-mono font-medium mb-8 backdrop-blur-xl">
+        <div data-entrance className="inline-flex items-center gap-2.5 px-4 py-1.5 rounded-full mesh-glow-pill text-cyan-300 text-xs font-mono font-medium mb-8 backdrop-blur-xl">
           <Sparkles className="w-3.5 h-3.5 text-brand-400" />
           <span>FAST-MCP & A2A DUAL-PROTOCOL MESH • ZERO HALLUCINATION GUARANTEE</span>
           <ChevronRight className="w-3.5 h-3.5 text-cyan-400" />
         </div>
 
         {/* Headline with rotating line — UI only */}
-        <h1 className="reveal mesh-headline font-extrabold max-w-5xl mx-auto text-white">
+        <h1 data-entrance className="reveal mesh-headline font-extrabold max-w-5xl mx-auto text-white">
           The Autonomous AI Mesh for{' '}
           <span className="mesh-gradient-text" aria-live="polite">
             {HERO_ROTATING[heroIndex]}
@@ -278,12 +283,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
 
         {/* Subtitle */}
-        <p className="mt-8 text-lg sm:text-xl text-slate-300 max-w-3xl mx-auto font-normal leading-relaxed">
+        <p data-entrance className="mt-8 text-lg sm:text-xl text-slate-300 max-w-3xl mx-auto font-normal leading-relaxed">
           Macrograph-AI connects <strong>10 specialized sector agents</strong> over the <strong>A2A cognitive reasoning protocol</strong> and <strong>FastMCP data gateways</strong>. Directly query live official RBI DBIE, MoSPI, IMF SDMX 3.0, and Yahoo Finance feeds with strict citation guarantees.
         </p>
 
         {/* CTAs */}
-        <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
+        <div data-entrance className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
           <button
             onClick={isAuthenticated ? onEnterWorkspace : onOpenAuth}
             className="touch-44 w-full sm:w-auto py-4 px-9 rounded-2xl bg-gradient-to-r from-brand-500 via-indigo-600 to-cyan-500 hover:from-brand-400 hover:to-cyan-400 text-white font-bold text-base shadow-glow-brand transition-all flex items-center justify-center gap-3 group"
@@ -321,23 +326,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </ol>
         </nav>
 
-        {/* Authority marquee — CSS transform only, UI only */}
-        <div className="mt-12 max-w-5xl mx-auto" aria-label="Trusted data authorities">
-          <p className="mesh-eyebrow text-slate-500 mb-3">_Trusted by official authorities_</p>
-          <div className="overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl">
-            <div className="mesh-marquee-track py-3.5 px-4 gap-3" aria-hidden="true">
-              {[...TRUST_STRIP, ...TRUST_STRIP].map((t, i) => (
-                <span key={i} className="shrink-0 px-4 py-1.5 rounded-full text-xs font-mono text-slate-300 bg-white/[0.04] border border-white/10 whitespace-nowrap">
-                  {t}
-                </span>
-              ))}
-            </div>
-          </div>
-        </div>
+        {/* Authority marquee — dual-row 3D perspective, transform only, UI only */}
+        <Marquee3D items={TRUST_STRIP} />
 
-        {/* Telemetry metrics strip */}
+        {/* Telemetry metrics strip — 3D tilt depth cards */}
         <div className="reveal mt-12 sm:mt-16 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 max-w-5xl mx-auto text-left">
-          <div className="p-5 rounded-2xl mesh-card text-left">
+          <TiltCard label="Non-food credit telemetry" maxTilt={6}>
+          <div className="p-5 rounded-2xl mesh-card text-left h-full">
             <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
               <span>Non-Food Credit YoY</span>
               <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">RBI r539</span>
@@ -348,8 +343,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <span>₹217.96 Lakh Cr Deployed</span>
             </div>
           </div>
+          </TiltCard>
 
-          <div className="p-5 rounded-2xl mesh-card text-left">
+          <TiltCard label="Asset quality telemetry" maxTilt={6}>
+          <div className="p-5 rounded-2xl mesh-card text-left h-full">
             <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
               <span>Gross NPA Ratio</span>
               <span className="text-[10px] px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">SCBs FSR</span>
@@ -360,8 +357,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <span>Net NPA 0.6% • Multi-Decade Low</span>
             </div>
           </div>
+          </TiltCard>
 
-          <div className="p-5 rounded-2xl mesh-card text-left">
+          <TiltCard label="Forex reserves telemetry" maxTilt={6}>
+          <div className="p-5 rounded-2xl mesh-card text-left h-full">
             <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
               <span>Foreign Exchange Reserves</span>
               <span className="text-[10px] px-2 py-0.5 rounded bg-brand-500/10 text-brand-300 border border-brand-500/20">Weekly r574</span>
@@ -372,8 +371,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <span>13.2 Months Import Cover</span>
             </div>
           </div>
+          </TiltCard>
 
-          <div className="p-5 rounded-2xl mesh-card text-left">
+          <TiltCard label="Capital adequacy telemetry" maxTilt={6}>
+          <div className="p-5 rounded-2xl mesh-card text-left h-full">
             <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
               <span>Capital Adequacy (CRAR)</span>
               <span className="text-[10px] px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">RBI r329</span>
@@ -384,6 +385,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <span>CET-1: 13.9% (+530 bps Buffer)</span>
             </div>
           </div>
+          </TiltCard>
         </div>
 
         {/* Sample resolver teaser — local state only, no backend calls */}
@@ -437,7 +439,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <li className="flex gap-2.5"><span aria-hidden="true" className="text-rose-400">✕</span><span>No citation chain — numbers without tables or vintages</span></li>
               </ul>
             </div>
-            <div className="mesh-compare-after mesh-beam rounded-3xl p-6 sm:p-8">
+            <div className="mesh-compare-after mesh-beam wobble-hover rounded-3xl p-6 sm:p-8">
               <p className="mesh-eyebrow text-cyan-300 mb-4">The Macrograph way</p>
               <ul className="space-y-3 text-sm text-slate-200">
                 <li className="flex gap-2.5"><CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" /><span>10 owner-agents, one source of truth per indicator</span></li>
@@ -512,8 +514,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </div>
           </div>
 
-          {/* Console Viewport */}
-          <div id="console-panel" role="tabpanel" aria-labelledby={`console-tab-${activeConsoleTab}`} className="reveal p-4 sm:p-6 md:p-8 rounded-3xl mesh-card mesh-beam border border-white/10 shadow-2xl relative overflow-hidden">
+          {/* Console Viewport — scrollytelling step */}
+          <div id="console-panel" role="tabpanel" aria-labelledby={`console-tab-${activeConsoleTab}`} className="reveal scrolly-step p-4 sm:p-6 md:p-8 rounded-3xl mesh-card mesh-beam border border-white/10 shadow-2xl relative overflow-hidden">
             {/* Ambient edge highlight */}
             <div className="absolute top-0 right-0 w-96 h-96 bg-cyan-500/10 rounded-full blur-[100px] pointer-events-none" />
 
@@ -706,7 +708,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
           <div className="grid md:grid-cols-2 gap-8">
             {/* A2A Protocol Card */}
-            <div className="p-8 rounded-3xl mesh-card border border-brand-500/20 relative group hover:border-brand-500/40 transition-all">
+            <div className="reveal-gsap p-8 rounded-3xl mesh-card wobble-hover border border-brand-500/20 relative group hover:border-brand-500/40 transition-all">
               <div className="w-12 h-12 rounded-2xl bg-brand-500/10 border border-brand-500/30 flex items-center justify-center mb-6 shadow-glow-brand">
                 <GitBranch className="w-6 h-6 text-brand-400" />
               </div>
@@ -734,7 +736,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </div>
 
             {/* FastMCP Data Layer Card */}
-            <div className="p-8 rounded-3xl mesh-card border border-cyan-500/20 relative group hover:border-cyan-500/40 transition-all">
+            <div className="reveal-gsap p-8 rounded-3xl mesh-card wobble-hover border border-cyan-500/20 relative group hover:border-cyan-500/40 transition-all">
               <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center mb-6 shadow-glow-cyan">
                 <Database className="w-6 h-6 text-cyan-400" />
               </div>
@@ -800,9 +802,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               const isStaged = agent.status === 'staged';
 
               return (
+                <TiltCard key={agent.id} label={`${agent.name} sector`} maxTilt={5}>
                 <div
-                  key={agent.id}
-                  className={`p-6 rounded-3xl mesh-card relative border transition-all ${
+                  className={`reveal-gsap p-6 rounded-3xl mesh-card relative border transition-all h-full ${
                     isLive
                       ? 'border-emerald-500/40 bg-emerald-950/10 hover:border-emerald-400 shadow-glow-emerald/20'
                       : isStaged
@@ -858,6 +860,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     </button>
                   )}
                 </div>
+                </TiltCard>
               );
             })}
           </div>

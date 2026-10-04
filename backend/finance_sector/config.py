@@ -18,8 +18,7 @@ class FinanceSectorSettings(BaseSettings):
     FIN_FIS_KEY: str | None = Field(default=None, description="Groq API key for finance sector agent")
 
     # Tavily API key for real-time finance news & intelligence
-    TVLY_KEY_1: str | None = Field(default=None, description="Primary Tavily API key for search enrichment")
-    TAVILY_API_KEY: str | None = Field(default=None, description="Fallback Tavily API key")
+    TVLY_KEY_1: str | None = Field(default=None, description="Tavily API key for search enrichment")
 
     # LLM model for this sector
     FINANCE_LLM_MODEL: str = Field(

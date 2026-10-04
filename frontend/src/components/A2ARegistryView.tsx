@@ -1,10 +1,14 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { RefreshCw, ShieldCheck, Search, Inbox } from 'lucide-react';
+import { TiltCard } from './motion/TiltCard';
+import { useGsapPage } from '../hooks/useGsapPage';
 
 export const A2ARegistryView: React.FC = () => {
   const [agents, setAgents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
+  const rootRef = useRef<HTMLDivElement>(null);
+  useGsapPage(rootRef, [loading]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -34,8 +38,8 @@ export const A2ARegistryView: React.FC = () => {
   }, []);
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6 bg-background">
-      <div className="pb-6 border-b border-white/5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div ref={rootRef} className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6 bg-background">
+      <div data-entrance className="pb-6 border-b border-white/5 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span className="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-semibold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
@@ -97,7 +101,8 @@ export const A2ARegistryView: React.FC = () => {
       ) : (
       <div aria-live="polite" className="cv-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
         {filtered.map((card, idx) => (
-          <div key={idx} className="p-6 rounded-2xl glass-panel border border-white/5 space-y-4 relative group">
+          <TiltCard key={idx} label={`${card.name ?? 'Agent'} card`} maxTilt={5}>
+          <div className="reveal-gsap p-6 rounded-2xl glass-panel border border-white/5 space-y-4 relative group h-full">
             <div className="flex items-start justify-between">
               <div>
                 <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
@@ -136,6 +141,7 @@ export const A2ARegistryView: React.FC = () => {
               <span>FastMCP Tool Ready</span>
             </div>
           </div>
+          </TiltCard>
         ))}
       </div>
       )}

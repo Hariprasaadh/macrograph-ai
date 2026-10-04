@@ -1,4 +1,7 @@
-"""Capital Markets Sector DuckDB database initialisation and schema management."""
+"""Capital Markets Sector DuckDB database initialisation and schema management.
+
+Maintains tables for all 10 domain responsibilities with strict parameterized SQL.
+"""
 from __future__ import annotations
 
 import json
@@ -12,6 +15,7 @@ from typing import Any, Generator
 import duckdb
 
 from capital_market_sector.config import capital_settings
+from capital_market_sector.database_seed import get_canonical_baseline_rows
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +28,13 @@ _ALLOWED_TABLES: frozenset[str] = frozenset({
     "india_vix",
     "market_breadth",
     "gsec_yields",
+    "mutual_fund_flows",
+    "fpi_flows",
+    "corporate_earnings",
+    "sectoral_performance",
+    "primary_market_ipos",
+    "investor_participation",
+    "market_economy_linkages",
     "fetch_log",
 })
 
@@ -38,6 +49,13 @@ _DDL_STATEMENTS: list[str] = [
     "CREATE SEQUENCE IF NOT EXISTS seq_vix_id START 1",
     "CREATE SEQUENCE IF NOT EXISTS seq_breadth_id START 1",
     "CREATE SEQUENCE IF NOT EXISTS seq_gsec_id START 1",
+    "CREATE SEQUENCE IF NOT EXISTS seq_mf_flows_id START 1",
+    "CREATE SEQUENCE IF NOT EXISTS seq_fpi_flows_id START 1",
+    "CREATE SEQUENCE IF NOT EXISTS seq_corp_earn_id START 1",
+    "CREATE SEQUENCE IF NOT EXISTS seq_sector_id START 1",
+    "CREATE SEQUENCE IF NOT EXISTS seq_ipo_id START 1",
+    "CREATE SEQUENCE IF NOT EXISTS seq_investor_id START 1",
+    "CREATE SEQUENCE IF NOT EXISTS seq_linkage_id START 1",
     "CREATE SEQUENCE IF NOT EXISTS seq_cap_fetchlog_id START 1",
 
     """
@@ -99,8 +117,6 @@ _DDL_STATEMENTS: list[str] = [
         fetched_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
     """,
-    "ALTER TABLE market_breadth ADD COLUMN IF NOT EXISTS total_stocks INTEGER",
-    "ALTER TABLE market_breadth ADD COLUMN IF NOT EXISTS total_volume BIGINT",
 
     """
     CREATE TABLE IF NOT EXISTS gsec_yields (
@@ -116,13 +132,113 @@ _DDL_STATEMENTS: list[str] = [
     """,
 
     """
+    CREATE TABLE IF NOT EXISTS mutual_fund_flows (
+        id                   BIGINT DEFAULT nextval('seq_mf_flows_id') PRIMARY KEY,
+        period               VARCHAR NOT NULL UNIQUE,
+        equity_inflows_cr    DOUBLE,
+        sip_inflow_cr        DOUBLE,
+        total_mf_aum_lakh_cr DOUBLE,
+        net_inflow_cr        DOUBLE,
+        citation             VARCHAR NOT NULL,
+        fetched_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+
+    """
+    CREATE TABLE IF NOT EXISTS fpi_flows (
+        id                        BIGINT DEFAULT nextval('seq_fpi_flows_id') PRIMARY KEY,
+        period                    VARCHAR NOT NULL UNIQUE,
+        fpi_gross_purchases_cr    DOUBLE,
+        fpi_gross_sales_cr        DOUBLE,
+        fpi_net_investment_cr     DOUBLE,
+        fpi_net_investment_usd_mn DOUBLE,
+        dii_net_investment_cr     DOUBLE,
+        citation                  VARCHAR NOT NULL,
+        fetched_at                TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+
+    """
+    CREATE TABLE IF NOT EXISTS corporate_earnings (
+        id                 BIGINT DEFAULT nextval('seq_corp_earn_id') PRIMARY KEY,
+        period             VARCHAR NOT NULL UNIQUE,
+        index_name         VARCHAR NOT NULL,
+        ttm_eps            DOUBLE,
+        pe_ratio           DOUBLE,
+        pb_ratio           DOUBLE,
+        dividend_yield_pct DOUBLE,
+        pat_growth_yoy_pct DOUBLE,
+        citation           VARCHAR NOT NULL,
+        fetched_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+
+    """
+    CREATE TABLE IF NOT EXISTS sectoral_performance (
+        id                    BIGINT DEFAULT nextval('seq_sector_id') PRIMARY KEY,
+        period                VARCHAR NOT NULL UNIQUE,
+        nifty_50_change_pct   DOUBLE,
+        nifty_bank_change_pct DOUBLE,
+        nifty_it_change_pct   DOUBLE,
+        nifty_auto_change_pct DOUBLE,
+        nifty_pharma_change_pct DOUBLE,
+        nifty_fmcg_change_pct DOUBLE,
+        leading_sector        VARCHAR,
+        lagging_sector        VARCHAR,
+        citation              VARCHAR NOT NULL,
+        fetched_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+
+    """
+    CREATE TABLE IF NOT EXISTS primary_market_ipos (
+        id                     BIGINT DEFAULT nextval('seq_ipo_id') PRIMARY KEY,
+        period                 VARCHAR NOT NULL UNIQUE,
+        ipo_count              INTEGER,
+        ipo_proceeds_cr        DOUBLE,
+        qip_proceeds_cr        DOUBLE,
+        rights_proceeds_cr     DOUBLE,
+        total_equity_raised_cr DOUBLE,
+        citation               VARCHAR NOT NULL,
+        fetched_at             TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+
+    """
+    CREATE TABLE IF NOT EXISTS investor_participation (
+        id                           BIGINT DEFAULT nextval('seq_investor_id') PRIMARY KEY,
+        period                       VARCHAR NOT NULL UNIQUE,
+        total_demat_accounts_cr      DOUBLE,
+        monthly_demat_additions_lakh DOUBLE,
+        retail_turnover_share_pct    DOUBLE,
+        institutional_holding_pct    DOUBLE,
+        citation                     VARCHAR NOT NULL,
+        fetched_at                   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+
+    """
+    CREATE TABLE IF NOT EXISTS market_economy_linkages (
+        id                       BIGINT DEFAULT nextval('seq_linkage_id') PRIMARY KEY,
+        period                   VARCHAR NOT NULL UNIQUE,
+        nifty_earnings_yield_pct DOUBLE,
+        ten_year_gsec_yield_pct  DOUBLE,
+        equity_risk_premium_bps  DOUBLE,
+        market_cap_to_gdp_pct    DOUBLE,
+        linkage_regime           VARCHAR,
+        citation                 VARCHAR NOT NULL,
+        fetched_at               TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+
+    """
     CREATE TABLE IF NOT EXISTS fetch_log (
-        id         BIGINT DEFAULT nextval('seq_cap_fetchlog_id') PRIMARY KEY,
-        tool_name  VARCHAR NOT NULL,
-        status     VARCHAR NOT NULL,
+        id           BIGINT DEFAULT nextval('seq_cap_fetchlog_id') PRIMARY KEY,
+        tool_name    VARCHAR NOT NULL,
+        status       VARCHAR NOT NULL,
         rows_written INTEGER,
-        error_msg  VARCHAR,
-        logged_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        error_msg    VARCHAR,
+        logged_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
     """,
 ]
@@ -150,93 +266,11 @@ def initialise_schema(seed_baseline: bool = False) -> None:
 
 
 def seed_canonical_baseline() -> None:
-    nifty_rows = query_latest_rows("nifty_snapshot", limit=1)
-    if not nifty_rows:
-        upsert_rows("nifty_snapshot", [{
-            "period": "2024-09-30",
-            "index_name": "NIFTY 50",
-            "open_price": 25820.0,
-            "high_price": 25950.0,
-            "low_price": 25780.0,
-            "close_price": 25810.85,
-            "change_points": 35.5,
-            "change_pct": 0.14,
-            "volume_shares": 350000000.0,
-            "turnover_cr": 45000.0,
-            "citation": json.dumps({
-                "source_agent": "capital_market_sector",
-                "source_authority": "National Stock Exchange of India (NSE)",
-                "document_title": "NSE Capital Market Daily Bhavcopy",
-                "table_reference": "capital_market_sector.nifty_50_bhavcopy",
-                "retrieval_url": "https://mcp.nseindia.in/bhavcopy/cm/mcp",
-                "observation_period": "2024-09-30",
-                "fetched_at": datetime.now(timezone.utc).isoformat(),
-                "freshness": "cached",
-            }),
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
-        }])
-
-    vix_rows = query_latest_rows("india_vix", limit=1)
-    if not vix_rows:
-        upsert_rows("india_vix", [{
-            "period": "2024-09-30",
-            "vix_close": 12.85,
-            "vix_change_pct": -1.5,
-            "volatility_regime": "Low",
-            "citation": json.dumps({
-                "source_agent": "capital_market_sector",
-                "source_authority": "National Stock Exchange of India (NSE)",
-                "document_title": "India Volatility Index (India VIX)",
-                "table_reference": "capital_market_sector.india_vix",
-                "retrieval_url": "https://mcp.nseindia.in/cmmkt/mcp",
-                "observation_period": "2024-09-30",
-                "fetched_at": datetime.now(timezone.utc).isoformat(),
-                "freshness": "cached",
-            }),
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
-        }])
-
-    breadth_rows = query_latest_rows("market_breadth", limit=1)
-    if not breadth_rows:
-        upsert_rows("market_breadth", [{
-            "period": "2024-09-30",
-            "advances_count": 1450,
-            "declines_count": 1120,
-            "unchanged_count": 80,
-            "advance_decline_ratio": 1.29,
-            "citation": json.dumps({
-                "source_agent": "capital_market_sector",
-                "source_authority": "National Stock Exchange of India (NSE)",
-                "document_title": "NSE Market Breadth Summary",
-                "table_reference": "capital_market_sector.market_breadth",
-                "retrieval_url": "https://mcp.nseindia.in/cmmkt/mcp",
-                "observation_period": "2024-09-30",
-                "fetched_at": datetime.now(timezone.utc).isoformat(),
-                "freshness": "cached",
-            }),
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
-        }])
-
-    gsec_rows = query_latest_rows("gsec_yields", limit=1)
-    if not gsec_rows:
-        upsert_rows("gsec_yields", [{
-            "period": "2024-09-30",
-            "ten_year_gsec_yield_pct": 6.78,
-            "five_year_gsec_yield_pct": 6.65,
-            "two_year_gsec_yield_pct": 6.52,
-            "yield_curve_spread_2s10s_bps": 26.0,
-            "citation": json.dumps({
-                "source_agent": "capital_market_sector",
-                "source_authority": "Reserve Bank of India (RBI) / CCIL",
-                "document_title": "Government Securities Yield Curve",
-                "table_reference": "financial_sector.r531_gsec_yields",
-                "retrieval_url": "https://data-api.dbie.rbihub.in/api/tables/financial_sector/r531_key_rates/rows",
-                "observation_period": "2024-09-30",
-                "fetched_at": datetime.now(timezone.utc).isoformat(),
-                "freshness": "cached",
-            }),
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
-        }])
+    baseline_tables = get_canonical_baseline_rows()
+    for table_name, rows in baseline_tables.items():
+        existing = query_latest_rows(table_name, limit=1)
+        if not existing:
+            upsert_rows(table_name, rows)
 
 
 def upsert_rows(table: str, rows: list[dict[str, Any]]) -> int:
@@ -260,14 +294,7 @@ def upsert_rows(table: str, rows: list[dict[str, Any]]) -> int:
     placeholders = ", ".join(["?" for _ in columns])
     col_list = ", ".join(columns)
 
-    _conflict_key_map: dict[str, list[str]] = {
-        "nifty_snapshot": ["period"],
-        "market_history": ["period"],
-        "india_vix": ["period"],
-        "market_breadth": ["period"],
-        "gsec_yields": ["period"],
-    }
-    conflict_cols = _conflict_key_map.get(table, ["period"])
+    conflict_cols = ["period"]
     conflict_target = ", ".join(conflict_cols)
 
     _unique_set = set(conflict_cols)
@@ -295,7 +322,6 @@ def log_fetch(tool_name: str, status: str, rows_written: int = 0, error_msg: str
             "INSERT INTO fetch_log (tool_name, status, rows_written, error_msg) VALUES (?, ?, ?, ?)",
             [tool_name, status, rows_written, error_msg],
         )
-        con.commit()
 
 
 def query_latest_rows(table: str, limit: int) -> list[dict[str, Any]]:

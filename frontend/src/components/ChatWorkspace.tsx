@@ -865,7 +865,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             e.preventDefault();
             handleSendMessage();
           }}
-          className="max-w-4xl mx-auto relative flex items-center"
+          className="max-w-4xl mx-auto relative flex items-center mesh-beam rounded-xl"
         >
           <label htmlFor="chat-input" className="sr-only">
             Ask {isFinance ? 'Finance and Banking Sector Agent' : isOrchestrator ? 'Macrograph Orchestrator' : selectedAgent.name}

@@ -1,5 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Share2, ArrowRight, Zap, RefreshCw } from 'lucide-react';
+import { TiltCard } from './motion/TiltCard';
+import { useGsapPage } from '../hooks/useGsapPage';
 
 export const KnowledgeGraphView: React.FC = () => {
   const [source, setSource] = useState('in.macro.monetary.repo_rate');
@@ -7,6 +9,8 @@ export const KnowledgeGraphView: React.FC = () => {
   const [pathData, setPathData] = useState<any>(null);
   const [impactData, setImpactData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  useGsapPage(rootRef, [loading]);
 
   const fetchCausalData = async () => {
     setLoading(true);
@@ -35,8 +39,8 @@ export const KnowledgeGraphView: React.FC = () => {
   }, [source, target]);
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6 bg-background">
-      <div className="pb-6 border-b border-white/5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div ref={rootRef} className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6 bg-background">
+      <div data-entrance className="pb-6 border-b border-white/5 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span className="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-semibold bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
@@ -104,8 +108,8 @@ export const KnowledgeGraphView: React.FC = () => {
         </div>
       </div>
 
-      {/* Path visual — UI-only SVG inside animated div wrapper */}
-      <div aria-hidden="true" className="rounded-2xl border border-white/[0.08] bg-gradient-to-r from-brand-600/[0.07] via-cyan-500/[0.05] to-transparent p-4 overflow-hidden">
+      {/* Path visual — parallax node ribbon, UI-only */}
+      <div aria-hidden="true" className="reveal-gsap rounded-2xl border border-white/[0.08] bg-gradient-to-r from-brand-600/[0.07] via-cyan-500/[0.05] to-transparent p-4 overflow-hidden">
         <div className="flex items-center gap-2 overflow-x-auto">
           {[source, target].map((node, i) => (
             <React.Fragment key={node}>
@@ -136,7 +140,7 @@ export const KnowledgeGraphView: React.FC = () => {
 
       {/* Path Results */}
       {pathData && (
-        <div aria-live="polite" className="cv-auto p-4 sm:p-6 rounded-2xl glass-panel border border-cyan-500/20 space-y-4">
+        <div aria-live="polite" className="reveal-gsap cv-auto p-4 sm:p-6 rounded-2xl glass-panel border border-cyan-500/20 space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-white/5">
             <div className="flex items-center gap-2">
               <span className="font-semibold text-white text-sm">Discovered Transmission Route</span>
@@ -191,13 +195,15 @@ export const KnowledgeGraphView: React.FC = () => {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
             {impactData.downstream_impacts?.slice(0, 9).map((imp: any, i: number) => (
-              <div key={i} className="p-3 rounded-xl bg-slate-900/40 border border-white/5 text-xs font-mono">
+              <TiltCard key={i} label="Reachable indicator" maxTilt={5}>
+              <div className="p-3 rounded-xl bg-slate-900/40 border border-white/5 text-xs font-mono h-full">
                 <div className="text-white truncate font-medium">{imp.target_id || imp}</div>
                 <div className="text-[10px] text-slate-500 mt-1 flex items-center justify-between">
                   <span>Reachable via transmission</span>
                   <span className="text-emerald-400">Causal Link</span>
                 </div>
               </div>
+              </TiltCard>
             ))}
           </div>
         </div>

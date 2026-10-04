@@ -336,6 +336,7 @@ _DIRECT_SECTOR_CHAT: dict[str, dict[str, Any]] = {
             ]),
             ("india_vix", "India VIX", [
                 ("Close", "vix_close", ""),
+                ("Regime", "volatility_regime", ""),
             ]),
             ("market_history", "Historical index data", [
                 ("Index", "index_name", ""),
@@ -356,6 +357,42 @@ _DIRECT_SECTOR_CHAT: dict[str, dict[str, Any]] = {
                 ("5-year G-Sec yield", "five_year_gsec_yield_pct", "%"),
                 ("2-year G-Sec yield", "two_year_gsec_yield_pct", "%"),
                 ("2s10s spread", "yield_curve_spread_2s10s_bps", " bps"),
+            ]),
+            ("mutual_fund_flows", "Mutual Fund Flows", [
+                ("SIP Inflows", "sip_inflow_cr", " Cr"),
+                ("Equity Inflows", "equity_inflows_cr", " Cr"),
+                ("Total Industry AUM", "total_mf_aum_lakh_cr", " Lakh Cr"),
+            ]),
+            ("fpi_flows", "FPI & DII Flows", [
+                ("FPI Net Investment", "fpi_net_investment_cr", " Cr"),
+                ("DII Net Investment", "dii_net_investment_cr", " Cr"),
+            ]),
+            ("corporate_earnings", "Corporate Earnings & Valuation", [
+                ("TTM EPS", "ttm_eps", ""),
+                ("P/E Ratio", "pe_ratio", ""),
+                ("PAT Growth YoY", "pat_growth_yoy_pct", "%"),
+            ]),
+            ("sectoral_performance", "Sectoral Performance", [
+                ("Leading Sector", "leading_sector", ""),
+                ("Lagging Sector", "lagging_sector", ""),
+                ("NIFTY Bank Change", "nifty_bank_change_pct", "%"),
+                ("NIFTY IT Change", "nifty_it_change_pct", "%"),
+            ]),
+            ("primary_market", "Primary Market (IPOs)", [
+                ("IPO Count", "ipo_count", ""),
+                ("IPO Proceeds", "ipo_proceeds_cr", " Cr"),
+                ("Total Equity Raised", "total_equity_raised_cr", " Cr"),
+            ]),
+            ("investor_participation", "Investor Participation", [
+                ("Demat Accounts", "total_demat_accounts_cr", " Cr"),
+                ("Monthly Additions", "monthly_demat_additions_lakh", " Lakh"),
+                ("Retail Share", "retail_turnover_share_pct", "%"),
+            ]),
+            ("market_economy_linkages", "Market-Economy Linkages", [
+                ("Equity Risk Premium", "equity_risk_premium_bps", " bps"),
+                ("Earnings Yield", "nifty_earnings_yield_pct", "%"),
+                ("Market Cap to GDP", "market_cap_to_gdp_pct", "%"),
+                ("Valuation Regime", "linkage_regime", ""),
             ]),
         ],
     },
