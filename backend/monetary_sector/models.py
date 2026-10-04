@@ -232,3 +232,21 @@ class UnavailableResponse(BaseModel):
     reason: str = Field(..., description="Human-readable explanation of why data is unavailable.")
     last_successful_fetch: datetime | None = Field(None)
     error_detail: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Cache Maintenance
+# ---------------------------------------------------------------------------
+
+class CacheClearResponse(BaseModel):
+    """Result of clearing the sector DuckDB cache tables."""
+
+    status: str = Field(default="cache_cleared", description="Cache-clear outcome.")
+    cleared_tables: dict[str, int] = Field(
+        default_factory=dict, description="Deleted row count per data table."
+    )
+    total_rows_deleted: int = Field(default=0, description="Total cached rows deleted.")
+    message: str = Field(
+        default="",
+        description="Human-readable note on what happens on subsequent queries.",
+    )

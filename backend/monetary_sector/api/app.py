@@ -7,7 +7,9 @@ from fastapi import FastAPI, HTTPException, Query
 
 from monetary_sector import client
 from monetary_sector.client import MonetaryDataUnavailableError
+from monetary_sector import database as db
 from monetary_sector.models import (
+    CacheClearResponse,
     DataFreshness,
     MoneySupplyResponse,
     MonetaryStanceResponse,
@@ -77,3 +79,24 @@ async def monetary_stance() -> MonetaryStanceResponse:
         return MonetaryStanceResponse(status=freshness, total_records=len(records), records=records)
     except MonetaryDataUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
+
+
+@app.delete("/cache", response_model=CacheClearResponse, tags=["System"])
+async def clear_cache() -> CacheClearResponse:
+    """Delete cached rows (fetch_log audit preserved) to prove live-or-unavailable behavior."""
+    try:
+        cleared = db.clear_cached_tables()
+        total = sum(cleared.values())
+        return CacheClearResponse(
+            status="cache_cleared",
+            cleared_tables=cleared,
+            total_rows_deleted=total,
+            message=(
+                f"Cleared {total} cached rows. Subsequent queries pull live MCP data; "
+                "if all MCP servers are unreachable they now report unavailable."
+            ),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))

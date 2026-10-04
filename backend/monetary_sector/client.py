@@ -1,14 +1,29 @@
-"""Async client for RBI data exposed by the official RBIH DBIE MCP."""
+"""Async fetch orchestrators for Monetary Sector RBI data.
+
+Dataset fetchers with the live-first chain (Eco-Policy MCP via the standard
+MCP SDK stdio client, DBIE CDN direct HTTP exactly like the finance sector,
+DuckDB cache), the stance derivation, Tavily direct search, and explicit
+live-data enforcement. Caching lives in ``cache_loaders``.
+"""
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
 import os
-from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import httpx
+import json
+from tenacity import (
+    before_sleep_log,
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
+
+from monetary_sector import cache_loaders
 from monetary_sector import database as db
+from monetary_sector.cache_loaders import MonetaryDataUnavailableError
 from monetary_sector.config import monetary_settings
 from monetary_sector.models import (
     Citation,
@@ -27,308 +42,99 @@ from monetary_sector.parsers import (
 
 logger = logging.getLogger(__name__)
 
-_MCP_PACKAGE = "@reserve-bank-innovation-hub/dbie-mcp@0.1.0"
-_ECO_POLICY_COMMAND: tuple[str, ...] = ("uvx", "eco-policy-mcp")
-_TAVILY_MCP_COMMAND: tuple[str, ...] = ("npx", "--yes", "mcp-remote")
-_STDIO_LINE_LIMIT = 16 * 1024 * 1024
-_TABLES: dict[str, dict[str, str]] = {
+# ── DBIE direct HTTP (finance-sector pattern: plain httpx, no subprocesses) ──
+_CDN = monetary_settings.DBIE_CDN_BASE
+
+_HTTP_TABLES: dict[str, dict[str, str]] = {
     "policy_rates": {
-        "title": "Select Economic Indicators",
-        "query": "RBI Select Economic Indicators monthly policy repo rate CRR SLR",
+        "url": f"{_CDN}/select-economic-indicators.json",
         "database_table": "policy_rates",
         "document_title": "Select Economic Indicators (Monthly), RBI Bulletin Table 1",
+        "table_reference": "/banking/select-economic-indicators",
+        "frequency": "Monthly",
     },
     "money_supply": {
-        "title": "Money Stock Measures",
-        "query": "Money Stock Measures M1 M2 M3",
+        "url": f"{_CDN}/money-stock-measures.json",
         "database_table": "money_supply",
         "document_title": "Money Stock Measures, RBI Bulletin Table 6",
+        "table_reference": "/banking/money-stock-measures",
+        "frequency": "Monthly",
     },
     "system_liquidity": {
-        "title": "Liquidity Operations By Rbi",
-        "query": "Liquidity Operations by RBI repo reverse repo MSF SDF",
+        "url": f"{_CDN}/liquidity-operations.json",
         "database_table": "system_liquidity",
         "document_title": "Liquidity Operations by RBI, RBI Bulletin Table 3",
+        "table_reference": "/banking/liquidity-operations",
+        "frequency": "Daily",
     },
 }
 
 
-class MonetaryDataUnavailableError(Exception):
-    """Raised when neither the official DBIE MCP nor local cache has data."""
-
-
-class _DBIEMCPClient:
-    """Small stdio JSON-RPC client for the official DBIE MCP executable."""
-
-    def __init__(self) -> None:
-        self._process: asyncio.subprocess.Process | None = None
-        self._request_id = 0
-        self._stderr_task: asyncio.Task[bytes] | None = None
-
-    async def __aenter__(self) -> _DBIEMCPClient:
-        if os.name == "nt":
-            command = (
-                "cmd.exe",
-                "/d",
-                "/s",
-                "/c",
-                f"npx.cmd --yes {_MCP_PACKAGE}",
-            )
-        else:
-            command = ("npx", "--yes", _MCP_PACKAGE)
-
-        self._process = await asyncio.create_subprocess_exec(
-            *command,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            limit=mcp_transport.STDIO_LINE_LIMIT,
-            env=mcp_transport.mcp_spawn_env(),
-        )
-        assert self._process.stdin is not None
-        self._stderr_task = asyncio.create_task(self._process.stderr.read())
-        try:
-            await self._request(
-                "initialize",
-                {
-                    "protocolVersion": "2025-03-26",
-                    "capabilities": {},
-                    "clientInfo": {"name": "macrograph-ai", "version": "0.1.0"},
-                },
-            )
-            self._notify("notifications/initialized")
-        except Exception:
-            self._process.kill()
-            await self._process.wait()
-            if self._stderr_task:
-                await self._stderr_task
-            raise
-        return self
-
-    async def __aexit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
-        if self._process is None:
-            return
-        if self._process.stdin and not self._process.stdin.is_closing():
-            self._process.stdin.close()
-        try:
-            await asyncio.wait_for(self._process.wait(), timeout=5)
-        except asyncio.TimeoutError:
-            self._process.kill()
-            await self._process.wait()
-        if self._stderr_task:
-            try:
-                stderr = await asyncio.wait_for(self._stderr_task, timeout=1)
-            except asyncio.TimeoutError:
-                self._stderr_task.cancel()
-                stderr = b""
-            if stderr and self._process.returncode not in (0, None) and exc is None:
-                logger.warning("DBIE MCP process exited with stderr: %s", stderr.decode(errors="replace"))
-
-    def _notify(self, method: str) -> None:
-        if self._process is None or self._process.stdin is None:
-            raise RuntimeError("DBIE MCP process is not running.")
-        message = {"jsonrpc": "2.0", "method": method}
-        self._process.stdin.write((json.dumps(message) + "\n").encode())
-
-    async def _request(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
-        if self._process is None or self._process.stdin is None or self._process.stdout is None:
-            raise RuntimeError("DBIE MCP process is not running.")
-        self._request_id += 1
-        request_id = self._request_id
-        request = {
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "method": method,
-            "params": params,
-        }
-        self._process.stdin.write((json.dumps(request) + "\n").encode())
-        await self._process.stdin.drain()
-
-        deadline = asyncio.get_running_loop().time() + monetary_settings.MONETARY_MCP_TIMEOUT
-        while True:
-            remaining = deadline - asyncio.get_running_loop().time()
-            if remaining <= 0:
-                raise TimeoutError(f"DBIE MCP timed out while handling {method}.")
-            try:
-                line = await asyncio.wait_for(self._process.stdout.readline(), timeout=remaining)
-            except TimeoutError:
-                raise TimeoutError(
-                    f"DBIE MCP produced no reply to {method} within "
-                    f"{monetary_settings.MONETARY_MCP_TIMEOUT}s (cold npx start or stuck process)."
-                ) from None
-            if not line:
-                raise ConnectionError("Official DBIE MCP exited before replying.")
-            try:
-                response = json.loads(line)
-            except json.JSONDecodeError as error:
-                raise ValueError("Official DBIE MCP wrote a malformed JSON-RPC message.") from error
-            if not isinstance(response, dict) or response.get("id") != request_id:
-                continue
-            if response.get("error"):
-                raise ValueError(f"Official DBIE MCP error: {response['error']}")
-            result = response.get("result")
-            if not isinstance(result, dict):
-                raise ValueError(f"Official DBIE MCP returned no result for {method}.")
-            return result
-
-    async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
-        result = await self._request(
-            "tools/call",
-            {"name": name, "arguments": arguments},
-        )
-        if result.get("isError"):
-            raise ValueError(f"DBIE MCP tool {name} failed: {result.get('content')}")
-        structured = result.get("structuredContent")
-        if structured is not None:
-            return structured
-        content = result.get("content")
-        if not isinstance(content, list):
-            raise ValueError(f"DBIE MCP tool {name} returned no content.")
-        text = next(
-            (item.get("text") for item in content if isinstance(item, dict) and item.get("type") == "text"),
-            None,
-        )
-        if not isinstance(text, str) or not text.strip():
-            raise ValueError(f"DBIE MCP tool {name} returned empty text content.")
-        try:
-            payload = json.loads(text)
-        except json.JSONDecodeError as error:
-            raise ValueError(f"DBIE MCP tool {name} returned malformed JSON content.") from error
-        if not isinstance(payload, dict) or payload.get("error"):
-            raise ValueError(f"DBIE MCP tool {name} returned an error payload: {payload}")
-        return payload
-
-
-from monetary_sector import mcp_transport  # stdio MCP transport (spawn, env, retry)
-
-
-async def _resolve_table(
-    mcp: _DBIEMCPClient,
-    dataset: str,
-) -> dict[str, Any]:
-    spec = _TABLES[dataset]
-    search = await mcp.call_tool(
-        "search_tables",
-        {"query": spec["query"], "limit": 20},
-    )
-    candidates = search.get("results")
-    if not isinstance(candidates, list):
-        candidates = []
-    target = next(
-        (
-            item for item in candidates
-            if isinstance(item, dict)
-            and str(item.get("title", "")).casefold() == spec["title"].casefold()
+def _make_retry():
+    return retry(
+        retry=retry_if_exception_type(
+            (httpx.TimeoutException, httpx.NetworkError, httpx.HTTPStatusError)
         ),
-        None,
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        stop=stop_after_attempt(3),
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+        reraise=True,
     )
 
-    if target is None:
-        catalogue = await mcp.call_tool("list_tables", {"section": "Banking"})
-        tables = catalogue.get("tables")
-        if isinstance(tables, list):
-            target = next(
-                (
-                    item for item in tables
-                    if isinstance(item, dict)
-                    and str(item.get("title", "")).casefold() == spec["title"].casefold()
-                ),
-                None,
-            )
 
-    if not isinstance(target, dict) or not isinstance(target.get("table"), str):
-        raise ValueError(f"Official DBIE catalogue did not resolve {spec['title']!r}.")
-    return target
+@_make_retry()
+async def _fetch_json(client: httpx.AsyncClient, url: str, params: dict | None = None) -> Any:
+    """Fetch and parse a JSON response. Raises on non-2xx."""
+    response = await client.get(url, params=params, timeout=monetary_settings.DBIE_TIMEOUT)
+    if response.is_error:
+        response.raise_for_status()
+    return response.json()
 
 
-def _frequency_from_source(title: str, payload: dict[str, Any]) -> str | None:
-    frequency = payload.get("frequency")
-    if isinstance(frequency, str) and frequency:
-        return frequency
-    for known in ("Daily", "Weekly", "Fortnightly", "Monthly", "Quarterly", "Annual"):
-        if known.casefold() in title.casefold():
-            return known
-    return None
-
-
-async def _fetch_table(
-    mcp: _DBIEMCPClient,
-    dataset: str,
-    lookback: int,
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    spec = _TABLES[dataset]
-    target = await _resolve_table(mcp, dataset)
-    result = await mcp.call_tool(
-        "get_table",
-        {"table": target["table"], "max_array_items": min(max(lookback * 35, 100), 10000)},
+def _build_client() -> httpx.AsyncClient:
+    return httpx.AsyncClient(
+        timeout=httpx.Timeout(
+            float(monetary_settings.DBIE_TIMEOUT),
+            connect=monetary_settings.HTTP_CONNECT_TIMEOUT,
+            read=monetary_settings.HTTP_READ_TIMEOUT,
+        ),
+        headers={"User-Agent": "macrograph-ai/monetary-sector"},
+        follow_redirects=True,
     )
-    payload = result.get("data")
+
+
+async def _fetch_live_records(dataset: str, lookback: int) -> list[Any]:
+    """Fetch a dataset from the DBIE CDN static JSON mirror (finance pattern).
+
+    Same upstream data as the DBIE MCP tables, without spawning any
+    subprocess. Raises on any fetch/parse failure for the caller to handle.
+    """
+    parser = {
+        "policy_rates": parse_policy_rates,
+        "money_supply": parse_money_supply,
+        "system_liquidity": parse_system_liquidity,
+    }[dataset]
+    spec = _HTTP_TABLES[dataset]
+    async with _build_client() as http_client:
+        payload = await _fetch_json(http_client, spec["url"])
     if not isinstance(payload, dict):
-        raise ValueError(f"DBIE {spec['title']} response did not contain table data.")
+        raise ValueError(f"DBIE CDN {spec['url']} returned no JSON object.")
     context = {
         "document_title": spec["document_title"],
-        "table_reference": target["table"],
-        "retrieval_url": target.get("page_url") or f"{result.get('source', '')}{target['table']}",
-        "source_base_url": result.get("source"),
-        "source_note": result.get("note"),
-        "frequency": (
-            _frequency_from_source(
-                f"{target.get('title', '')} {target.get('description', '')}",
-                payload,
-            )
-            or _frequency_from_source(spec["document_title"], payload)
+        "table_reference": spec["table_reference"],
+        "retrieval_url": spec["url"],
+        "source_base_url": "https://dbie.rbihub.in",
+        "source_note": (
+            "RBI DBIE CloudFront CDN static JSON mirror; reflects the "
+            "deployment's last scrape, not real-time values."
         ),
+        "frequency": spec["frequency"],
         "unit": payload.get("unit") or payload.get("units"),
-        "as_of": result.get("as_of"),
+        "as_of": None,
     }
-    if not result.get("source") or not result.get("note"):
-        raise ValueError("DBIE response omitted source or data-vintage note.")
-    return payload, context
+    return parser(payload, lookback, context)
 
-
-def _prepare_cached_citation(citation_data: Any) -> Citation:
-
-    if isinstance(citation_data, str):
-        citation_data = json.loads(citation_data)
-    if not isinstance(citation_data, dict):
-        raise ValueError("Cached monetary observation has invalid citation metadata.")
-    citation_data["freshness"] = DataFreshness.CACHED
-    return Citation.model_validate(citation_data)
-
-
-def _is_legacy_seed(row: dict[str, Any]) -> bool:
-    citation = row.get("citation")
-    if isinstance(citation, str):
-        try:
-            citation = json.loads(citation)
-        except json.JSONDecodeError:
-            return False
-    if not isinstance(citation, dict) or citation.get("freshness") != "cached":
-        return False
-    return citation.get("table_reference") in {
-        "monetary_sector.r532_laf_operations",
-        "monetary_sector.mpc_stance",
-        "financial_sector.r531_key_rates",
-        "financial_sector.r689_commercial_bank_survey",
-    }
-
-
-def _save_records(
-    table: str, records: list[Any], tool_name: str, fetch_status: str = "upstream_snapshot"
-) -> None:
-    if not records:
-        raise ValueError(f"{tool_name} returned no validated records.")
-    fetched_at = datetime.now(timezone.utc)
-    rows = [
-        {
-            **record.model_dump(mode="json", exclude={"citation"}),
-            "citation": record.citation.model_dump_json(),
-            "fetched_at": (fetched_at - timedelta(milliseconds=index)).isoformat(),
-        }
-        for index, record in enumerate(records)
-    ]
-    written = db.upsert_rows(table, rows)
-    db.log_fetch(tool_name, fetch_status, rows_written=written)
+_ECO_POLICY_COMMAND: tuple[str, ...] = ("uvx", "eco-policy-mcp")
 
 
 def _log_fallback(tool_name: str, error: Exception) -> None:
@@ -339,96 +145,6 @@ def _log_fallback(tool_name: str, error: Exception) -> None:
         logger.warning("Could not record %s fallback in fetch log: %s", tool_name, log_error)
 
 
-async def _fetch_live_records(dataset: str, lookback: int) -> list[Any]:
-    parser = {
-        "policy_rates": parse_policy_rates,
-        "money_supply": parse_money_supply,
-        "system_liquidity": parse_system_liquidity,
-    }[dataset]
-    async with mcp_transport.MCP_SPAWN_SEMAPHORE:
-        async with _DBIEMCPClient() as mcp:
-            payload, context = await _fetch_table(mcp, dataset, lookback)
-    return parser(payload, lookback, context)
-
-
-def _load_cache(table: str, limit: int, record_type: Any, tool_name: str) -> list[Any]:
-    try:
-        rows = db.query_latest_rows(table, limit)
-    except Exception as exc:
-        raise MonetaryDataUnavailableError(
-            f"{tool_name} unavailable: DBIE MCP failed and DuckDB cache could not be read."
-        ) from exc
-    rows = [row for row in rows if not _is_legacy_seed(row)]
-    if not rows:
-        raise MonetaryDataUnavailableError(
-            f"{tool_name} unavailable: DBIE MCP failed and cache is empty."
-        )
-    records = []
-    for row in rows:
-        try:
-            records.append(
-                record_type(
-                    **{key: value for key, value in row.items()
-                       if key not in {"id", "citation", "fetched_at"}},
-                    citation=_prepare_cached_citation(row.get("citation")),
-                )
-            )
-        except (TypeError, ValueError) as exc:
-            logger.warning("Ignoring invalid cached %s row: %s", tool_name, exc)
-    if not records:
-        raise MonetaryDataUnavailableError(
-            f"{tool_name} unavailable: no valid cached observations remain."
-        )
-    return records
-
-
-# Fresh-cache TTL per dataset (seconds). Mirrors the capital sector's
-# _rows_are_recent short-circuit: a query served within the TTL reuses the
-# just-fetched rows with zero MCP spawns, so overlapping chat requests can no
-# longer stampede uvx/npx. Explicit live-data requests bypass the TTL.
-_DATASET_TTL_SECONDS: dict[str, int] = {
-    "policy_rates": 600,
-    "money_supply": 600,
-    "system_liquidity": 600,
-    "monetary_stance": 600,
-}
-
-
-def _cached_rows_are_recent(table: str, max_age_seconds: int) -> bool:
-    """True when the newest non-legacy cached row was fetched within the TTL."""
-    try:
-        rows = db.query_latest_rows(table, 1)
-    except Exception:
-        return False
-    rows = [row for row in rows if not _is_legacy_seed(row)]
-    if not rows:
-        return False
-    fetched_at = rows[0].get("fetched_at")
-    if isinstance(fetched_at, str):
-        try:
-            fetched_at = datetime.fromisoformat(fetched_at.replace("Z", "+00:00"))
-        except ValueError:
-            return False
-    if not isinstance(fetched_at, datetime):
-        return False
-    if fetched_at.tzinfo is None:
-        fetched_at = fetched_at.replace(tzinfo=timezone.utc)
-    return (datetime.now(timezone.utc) - fetched_at).total_seconds() <= max_age_seconds
-
-
-def _load_fresh_cache(
-    table: str, limit: int, record_type: Any, tool_name: str, max_age_seconds: int
-) -> list[Any] | None:
-    """Return validated cached rows when they are within TTL, else None."""
-    if not _cached_rows_are_recent(table, max_age_seconds):
-        return None
-    try:
-        return _load_cache(table, limit, record_type, tool_name)
-    except Exception as exc:
-        logger.warning("Fresh %s cache unreadable, going live: %s", tool_name, exc)
-        return None
-
-
 async def _fetch_with_cache(
     dataset: str,
     lookback: int,
@@ -437,18 +153,18 @@ async def _fetch_with_cache(
     force_live: bool = False,
 ) -> list[Any]:
     db.initialise_schema()
-    spec = _TABLES[dataset]
+    spec = _HTTP_TABLES[dataset]
     tool_name = f"get_{dataset}"
     if not force_live:
-        fresh = _load_fresh_cache(
+        fresh = cache_loaders._load_fresh_cache(
             spec["database_table"], lookback, record_type, tool_name,
-            _DATASET_TTL_SECONDS[dataset],
+            cache_loaders._DATASET_TTL_SECONDS[dataset],
         )
         if fresh is not None:
             return fresh
     try:
         records = await _fetch_live_records(dataset, lookback)
-        _save_records(spec["database_table"], records, tool_name)
+        cache_loaders._save_records(spec["database_table"], records, tool_name)
         return records
     except Exception as exc:
         if force_live:
@@ -457,24 +173,76 @@ async def _fetch_with_cache(
                 f"cache is bypassed for this explicit live-data request ({exc})."
             ) from exc
         _log_fallback(tool_name, exc)
-        return _load_cache(spec["database_table"], lookback, record_type, tool_name)
+        return cache_loaders._load_cache(spec["database_table"], lookback, record_type, tool_name)
+
+
+def _subprocess_env() -> dict[str, str] | None:
+    """Environment for the eco-policy MCP subprocess.
+
+    Redirects uv/temp writes to D: when those directories exist (the C: drive
+    on this machine is full, which otherwise breaks package execution).
+    Returns None to inherit the process environment untouched otherwise.
+    """
+    if os.name != "nt":
+        return None
+    redirect = False
+    env = dict(os.environ)
+    for key, path in (
+        ("UV_CACHE_DIR", r"D:\uv-cache"),
+        ("TEMP", r"D:\Temp"),
+        ("TMP", r"D:\Temp"),
+    ):
+        if os.path.isdir(path) and key not in env:
+            env[key] = path
+            redirect = True
+    return env if redirect else None
+
+
+async def _call_eco_policy_tool() -> Any:
+    """Call `rbi_get_policy_rates` on the Eco-Policy MCP server via stdio.
+
+    Uses the standard MCP SDK client (this data source is distributed as a
+    local MCP server with no plain-HTTP data API). Raises on any transport
+    or tool failure; callers translate that into fallback behavior.
+    """
+    from mcp import ClientSession
+    from mcp.client.stdio import StdioServerParameters, stdio_client
+
+    params = StdioServerParameters(
+        command="uvx", args=["eco-policy-mcp"], env=_subprocess_env()
+    )
+    async with stdio_client(params) as (read_stream, write_stream):
+        async with ClientSession(read_stream, write_stream) as session:
+            await session.initialize()
+            result = await session.call_tool(
+                "rbi_get_policy_rates", {}, read_timeout_seconds=90.0
+            )
+    structured = getattr(result, "structured_content", None)
+    if structured is not None:
+        return structured
+    if getattr(result, "is_error", False):
+        raise ValueError(f"Eco-Policy MCP tool reported an error: {getattr(result, 'content', None)}")
+    texts = [
+        getattr(item, "text", None)
+        for item in (getattr(result, "content", None) or [])
+    ]
+    text = next((t for t in texts if isinstance(t, str) and t.strip()), None)
+    if text is None:
+        raise ValueError("Eco-Policy MCP tool returned no text content.")
+    payload = json.loads(text)
+    if isinstance(payload, dict) and payload.get("error"):
+        raise ValueError(f"Eco-Policy MCP tool returned an error payload: {payload}")
+    return payload
 
 
 async def _fetch_policy_rates_from_eco_policy() -> PolicyRatesRecord | None:
     """Live RBI policy rates from the Eco-Policy MCP server (`rbi_get_policy_rates`).
 
     Returns None when the server is unreachable or returns no repo rate, so the
-    caller falls through to the DBIE MCP and then the DuckDB cache.
+    caller falls through to the DBIE CDN mirror and then the DuckDB cache.
     """
     try:
-        payload = await mcp_transport.call_stdio_mcp_tool(
-            _ECO_POLICY_COMMAND,
-            "rbi_get_policy_rates",
-            {},
-            timeout=90.0,
-            label="eco-policy",
-            retries=1,
-        )
+        payload = await _call_eco_policy_tool()
     except Exception as exc:
         logger.warning("Eco-Policy MCP unavailable, will try DBIE: %s", exc)
         return None
@@ -535,15 +303,15 @@ async def fetch_policy_rates(
     """
     db.initialise_schema()
     if not force_live:
-        fresh = _load_fresh_cache(
+        fresh = cache_loaders._load_fresh_cache(
             "policy_rates", lookback_months, PolicyRatesRecord, "get_policy_rates",
-            _DATASET_TTL_SECONDS["policy_rates"],
+            cache_loaders._DATASET_TTL_SECONDS["policy_rates"],
         )
         if fresh is not None:
             return fresh
     eco_record = await _fetch_policy_rates_from_eco_policy()
     if eco_record is not None:
-        _save_records("policy_rates", [eco_record], "get_policy_rates", fetch_status="live")
+        cache_loaders._save_records("policy_rates", [eco_record], "get_policy_rates", fetch_status="live")
         return [eco_record]
     return await _fetch_with_cache(
         "policy_rates", lookback_months, PolicyRatesRecord, force_live=force_live
@@ -568,39 +336,63 @@ async def fetch_system_liquidity(
     )
 
 
+def derive_and_save_stance_snapshot(rate_records: list[Any]) -> MonetaryStanceRecord | None:
+    """Build the stance snapshot from already-fetched policy-rate records.
+
+    Pure derivation plus a save: no MCP calls, so the agent can reuse one
+    rates fetch instead of spawning a second live pull. The stance label comes
+    only from the policy-rate table; real rate, M3 growth, and liquidity
+    status stay absent unless their own sources provide them. Returns None
+    when no snapshot can be derived; callers fall back to the standalone
+    fetcher below.
+    """
+    try:
+        if not rate_records:
+            return None
+        rate = rate_records[0]
+        repo = getattr(rate, "repo_rate_pct", None)
+        if repo is None:
+            return None
+        record = MonetaryStanceRecord(
+            period=getattr(rate, "period", None),
+            repo_rate_pct=repo,
+            stance_label=getattr(rate, "stance", None),
+            real_policy_rate_pct=None,
+            m3_growth_pct=None,
+            system_liquidity_status=None,
+            citation=getattr(rate, "citation", None),
+        )
+        rate_freshness = getattr(getattr(rate, "citation", None), "freshness", None)
+        rate_freshness = getattr(rate_freshness, "value", "") or ""
+        cache_loaders._save_records(
+            "monetary_stance",
+            [record],
+            "get_monetary_stance_snapshot",
+            fetch_status="live" if rate_freshness == "live" else "upstream_snapshot",
+        )
+        return record
+    except Exception as exc:
+        logger.warning("Could not derive stance snapshot from rates: %s", exc)
+        return None
+
+
 async def fetch_monetary_stance_snapshot(
     *, force_live: bool = False
 ) -> list[MonetaryStanceRecord]:
     """Return a sourced policy-rate snapshot; unsupported stance metrics remain absent."""
     db.initialise_schema()
     if not force_live:
-        fresh = _load_fresh_cache(
+        fresh = cache_loaders._load_fresh_cache(
             "monetary_stance", 1, MonetaryStanceRecord, "Monetary stance snapshot",
-            _DATASET_TTL_SECONDS["monetary_stance"],
+            cache_loaders._DATASET_TTL_SECONDS["monetary_stance"],
         )
         if fresh is not None:
             return fresh
     try:
         rates = await fetch_policy_rates(lookback_months=1, force_live=force_live)
-        if not rates:
+        record = derive_and_save_stance_snapshot(rates)
+        if record is None:
             raise ValueError("No policy-rate observations were returned.")
-        rate = rates[0]
-        record = MonetaryStanceRecord(
-            period=rate.period,
-            repo_rate_pct=rate.repo_rate_pct,
-            stance_label=None,
-            real_policy_rate_pct=None,
-            m3_growth_pct=None,
-            system_liquidity_status=None,
-            citation=rate.citation,
-        )
-        rate_freshness = getattr(rate.citation.freshness, "value", "") or ""
-        _save_records(
-            "monetary_stance",
-            [record],
-            "get_monetary_stance_snapshot",
-            fetch_status="live" if rate_freshness == "live" else "upstream_snapshot",
-        )
         return [record]
     except Exception as exc:
         if force_live:
@@ -609,62 +401,82 @@ async def fetch_monetary_stance_snapshot(
                 f"and the cache is bypassed for this explicit live-data request ({exc})."
             ) from exc
         _log_fallback("get_monetary_stance_snapshot", exc)
-        return _load_cache(
+        return cache_loaders._load_cache(
             "monetary_stance", 1, MonetaryStanceRecord, "Monetary stance snapshot",
         )
 
 
-def _tavily_search_url() -> str | None:
-    """Remote Tavily MCP endpoint, built only from configured env keys.
-
-    Returns None when no key is configured; callers must treat that as
-    "news unavailable" rather than falling back to any embedded secret.
-    """
-    api_key = os.getenv("TVLY_KEY_1") or os.getenv("TAVILY_API_KEY")
-    if not api_key:
-        return None
-    return f"https://mcp.tavily.com/mcp/?tavilyApiKey={api_key}"
+def _get_tavily_key() -> str | None:
+    return (
+        monetary_settings.TVLY_KEY_1
+        or os.getenv("TVLY_KEY_1")
+    )
 
 
+@retry(
+    retry=retry_if_exception_type((httpx.TimeoutException, httpx.NetworkError)),
+    wait=wait_exponential(multiplier=1, min=2, max=8),
+    stop=stop_after_attempt(2),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+    reraise=False,
+)
 async def fetch_mpc_news_via_tavily_mcp(query: str, max_results: int = 5) -> list[dict[str, Any]]:
-    """Real-time MPC news through the Tavily remote MCP bridge (`tavily_search`).
+    """Real-time MPC news through the Tavily AI Search API (finance pattern).
 
-    Never raises: returns [] on any transport, auth, or schema failure so news
-    enrichment can never break a sector answer.
+    Plain HTTPS POST with no subprocess, so a full disk or busy process table
+    cannot break it. Never raises: returns [] on any transport, auth, or
+    schema failure so news enrichment can never break a sector answer.
     """
-    search_url = _tavily_search_url()
-    if search_url is None:
-        logger.warning("Tavily API key is not configured (TVLY_KEY_1); skipping MPC news.")
+    from monetary_sector.models import TavilyNewsItem
+
+    api_key = _get_tavily_key()
+    if not api_key:
+        logger.info("Tavily API key not configured for monetary sector. Skipping search enrichment.")
         return []
+
+    tavily_url = "https://api.tavily.com/search"
+    payload = {
+        "api_key": api_key,
+        "query": query[:240],
+        "search_depth": "basic",
+        "max_results": max_results,
+        "include_answer": False,
+    }
+
     try:
-        payload = await mcp_transport.call_stdio_mcp_tool(
-            (*_TAVILY_MCP_COMMAND, search_url),
-            "tavily_search",
-            {"query": query[:240], "max_results": max_results},
-            timeout=120.0,
-            label="tavily-remote",
-        )
+        async with httpx.AsyncClient(timeout=15.0) as http_client:
+            resp = await http_client.post(tavily_url, json=payload)
+            if resp.status_code != 200:
+                logger.warning(
+                    "Tavily monetary search returned status %s: %s",
+                    resp.status_code, resp.text[:200],
+                )
+                return []
+
+            data = resp.json()
+            raw_results = data.get("results", [])
+            items: list[dict[str, Any]] = []
+            for entry in raw_results:
+                if not isinstance(entry, dict):
+                    continue
+                item = TavilyNewsItem(
+                    title=str(entry.get("title", "")).strip(),
+                    url=str(entry.get("url", "")).strip(),
+                    content=str(entry.get("content", "")).strip()[:800],
+                    published_date=entry.get("published_date"),
+                    source="Tavily AI Search",
+                    score=entry.get("score"),
+                )
+                if not item.title or not item.url:
+                    continue
+                items.append({
+                    "title": item.title,
+                    "url": item.url,
+                    "snippet": item.content[:500],
+                    "date": item.published_date,
+                    "source": item.source,
+                })
+            return items
     except Exception as exc:
-        logger.warning("Tavily MCP news unavailable: %s", exc)
+        logger.warning("Tavily search failed for monetary sector: %s", exc)
         return []
-    results = payload.get("results") if isinstance(payload, dict) else None
-    if not isinstance(results, list):
-        return []
-    items: list[dict[str, Any]] = []
-    for entry in results:
-        if not isinstance(entry, dict):
-            continue
-        title = str(entry.get("title") or "").strip()
-        url = str(entry.get("url") or "").strip()
-        if not title or not url:
-            continue
-        items.append(
-            {
-                "title": title,
-                "url": url,
-                "snippet": str(entry.get("content") or "").strip()[:500],
-                "date": entry.get("published_date"),
-                "source": "Tavily AI Search",
-            }
-        )
-    return items

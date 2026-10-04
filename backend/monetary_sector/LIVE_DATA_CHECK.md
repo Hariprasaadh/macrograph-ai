@@ -9,38 +9,41 @@ setup step, no variables to define first. (The C: drive on this machine is
 full, so each block redirects `uvx`/`npx`/temp to D: — without that, every MCP
 spawn fails and all fetchers silently fall back to cache.)
 
-## 1. Eco-Policy MCP — live RBI policy rates
+## 1. Eco-Policy MCP — live RBI policy rates (standard SDK stdio)
 
 ```powershell
 cd "D:\PROJECT-1 CLG\macrograph-ai\backend"
-$env:UV_CACHE_DIR = "D:\uv-cache"; $env:npm_config_cache = "D:\npm-cache"; $env:TEMP = "D:\Temp"; $env:TMP = "D:\Temp"; $env:PYTHONIOENCODING = 'utf-8'
-& "D:\PROJECT-1 CLG\macrograph-ai\.venv\Scripts\python.exe" -c "import asyncio; from monetary_sector import mcp_transport; p = asyncio.run(mcp_transport.call_stdio_mcp_tool(('uvx','eco-policy-mcp'),'rbi_get_policy_rates',{},90.0,'eco-policy')); print(p['data']); print(p['provenance'])"
+$env:UV_CACHE_DIR = "D:\uv-cache"; $env:TEMP = "D:\Temp"; $env:TMP = "D:\Temp"; $env:PYTHONIOENCODING = 'utf-8'
+& "D:\PROJECT-1 CLG\macrograph-ai\.venv\Scripts\python.exe" -c "import asyncio; from monetary_sector.client import _call_eco_policy_tool; p = asyncio.run(_call_eco_policy_tool()); print(p['data']); print(p['provenance'])"
+```
 ```
 
 Expected: `policy_repo_rate: 5.25`, `stance: Neutral`,
 `rates_effective_from: 2026-08-05`, provenance with `as_of` + `reference`.
 
-## 2. DBIE MCP — official RBIH table catalogue
+## 2. DBIE CDN — official RBIH tables over plain HTTP (finance pattern)
 
 ```powershell
 cd "D:\PROJECT-1 CLG\macrograph-ai\backend"
-$env:UV_CACHE_DIR = "D:\uv-cache"; $env:npm_config_cache = "D:\npm-cache"; $env:TEMP = "D:\Temp"; $env:TMP = "D:\Temp"; $env:PYTHONIOENCODING = 'utf-8'
-& "D:\PROJECT-1 CLG\macrograph-ai\.venv\Scripts\python.exe" -c "import asyncio; from monetary_sector import mcp_transport; p = asyncio.run(mcp_transport.call_stdio_mcp_tool(('npx','--yes','@reserve-bank-innovation-hub/dbie-mcp'),'search_tables',{'query':'RBI Select Economic Indicators monthly policy repo rate CRR SLR','limit':3},90.0,'dbie')); print([t['title'] for t in p['results']])"
+$env:PYTHONIOENCODING = 'utf-8'
+& "D:\PROJECT-1 CLG\macrograph-ai\.venv\Scripts\python.exe" -c "import asyncio, httpx; print(asyncio.run(httpx.AsyncClient(timeout=30.0, follow_redirects=True).get('https://dbie.rbihub.in/data/money-stock-measures.json')).json().keys())"
 ```
 
-Expected: titles include `Select Economic Indicators` and
-`Liquidity Operations By Rbi`. First run downloads the package (slow); later
-runs reuse the D: npm cache.
+Expected: `dict_keys(['reportTitle', 'units', 'columns', 'data'])`. No `uvx`/`npx`
+involved — plain HTTPS like the finance sector, so a full C: drive cannot
+break it. (The old `npx dbie-mcp` stdio bridge was removed for exactly this
+reason.)
 
-## 3. Tavily remote MCP — real-time MPC news
+## 3. Tavily direct API — real-time MPC news (finance pattern, no subprocess)
 
 ```powershell
 cd "D:\PROJECT-1 CLG\macrograph-ai\backend"
-$env:UV_CACHE_DIR = "D:\uv-cache"; $env:npm_config_cache = "D:\npm-cache"; $env:TEMP = "D:\Temp"; $env:TMP = "D:\Temp"; $env:PYTHONIOENCODING = 'utf-8'
-& "D:\PROJECT-1 CLG\macrograph-ai\.venv\Scripts\python.exe" -c "import asyncio; from monetary_sector import mcp_transport; from monetary_sector.client import _tavily_search_url; p = asyncio.run(mcp_transport.call_stdio_mcp_tool(('npx','--yes','mcp-remote',_tavily_search_url()),'tavily_search',{'query':'RBI repo rate MPC meeting','max_results':3},120.0,'tavily-remote')); print([(r['title'][:70], r['url'][:70]) for r in p['results']])"
+$env:PYTHONIOENCODING = 'utf-8'
+& "D:\PROJECT-1 CLG\macrograph-ai\.venv\Scripts\python.exe" -c "import asyncio; from monetary_sector import client; print([(i['title'][:70], i['url'][:70]) for i in asyncio.run(client.fetch_mpc_news_via_tavily_mcp('RBI repo rate MPC meeting'))][:3])"
 ```
 
-Expected: 3 current MPC news results (repo 5.25%, neutral stance).
+Expected: 3 current MPC news results (repo 5.25%, neutral stance). Plain HTTPS
+like the finance sector — no `npx`, so disk/process state cannot break it.
 
 ## 4. Sector fetchers — freshness proof
 
@@ -141,10 +144,74 @@ Expected: `"status"` completed/partial, `"freshness"` with `live` entries,
 | `MonetaryDataUnavailableError` on a forced-live query | Correct behavior: live MCP sources failed and the request refused to serve cache. Check 1–3 to find which source is down |
 
 ## MCP source map (monetary sector)
-
 | Data | Primary | Fallback | Citation table_reference |
 |---|---|---|---|
 | Policy rates + stance | Eco-Policy `rbi_get_policy_rates` (LIVE) | DBIE `/banking/select-economic-indicators`, then cache | `eco-policy:rbi_get_policy_rates` |
-| Money supply (M1/M2/M3) | DBIE `/banking/money-stock-measures` | cache | `/banking/money-stock-measures` |
-| System liquidity | DBIE `/banking/liquidity-operations` | cache | `/banking/liquidity-operations` |
-| MPC news | Tavily `tavily_search` (gated: stance/recency queries) | omitted (never breaks answers) | item `url` + `source: Tavily AI Search` |
+| Money supply (M1/M2/M3) | DBIE CDN `money-stock-measures.json` (HTTP) | cache | `/banking/money-stock-measures` |
+| System liquidity | DBIE CDN `liquidity-operations.json` (HTTP) | cache | `/banking/liquidity-operations` |
+| MPC news | Tavily direct search API (gated: stance/recency queries) | omitted (never breaks answers) | item `url` + `source: Tavily AI Search` |
+
+## 8. Clear cache — prove live-or-unavailable (no stale safety net)
+
+Deletes cached rows (the `fetch_log` audit is preserved). Afterwards, working
+MCP servers repopulate live; dead ones raise instead of serving stale rows —
+exactly what a fresh system with no cache exhibits.
+
+Via the sector API (backend running):
+
+```powershell
+Invoke-RestMethod -Uri 'http://127.0.0.1:8000/monetary-sector/cache' -Method Delete
+```
+
+Expected: `{"status":"cache_cleared","cleared_tables":{...},"total_rows_deleted":N,...}`.
+
+Via chat (any client): send `clear the cache` to the monetary agent. It
+replies with per-table deleted counts and fetches nothing else.
+
+Then prove unavailability reporting with MCP servers blocked (or to simulate,
+stop network access) and an explicit live request:
+
+```powershell
+cd "D:\PROJECT-1 CLG\macrograph-ai\backend"
+$env:PYTHONIOENCODING = 'utf-8'
+& "D:\PROJECT-1 CLG\macrograph-ai\.venv\Scripts\python.exe" -c "
+import asyncio
+from monetary_sector import client
+try:
+    await client.fetch_money_supply(lookback_months=1, force_live=True)
+    print('served: MCP is reachable')
+except Exception as exc:
+    print('UNAVAILABLE AS DESIGNED:', type(exc).__name__, str(exc)[:160])
+"
+```
+
+Expected when MCP is down: `UNAVAILABLE AS DESIGNED: MonetaryDataUnavailableError:
+get_money_supply unavailable: live MCP sources failed and the DuckDB cache is
+bypassed ...`. Without `force_live`, the same situation reports the cached
+rows it has, or the same error when the cache is empty.
+
+## 9. Prompt routing (MCP registry) — which functions a query retrieves
+
+`backend/monetary_sector/mcp_registry.py` is the single registry mapping
+prompts to necessary functions. Verify routing without any network:
+
+```powershell
+cd "D:\PROJECT-1 CLG\macrograph-ai\backend"
+$env:PYTHONIOENCODING = 'utf-8'
+& "D:\PROJECT-1 CLG\macrograph-ai\.venv\Scripts\python.exe" -c "
+from monetary_sector import mcp_registry as r
+print('repo query ->', sorted(r.match_services('What is the repo rate?')))
+print('stance query ->', sorted(r.match_services('Explain the MPC stance')))
+print('expanded ->', sorted(r.expand_dependencies({'monetary_stance'})))
+print('news?', r.wants_news('Latest MPC news please', {'policy_rates'}))
+print('force?', r.wants_force_live('Fetch LIVE data now'))
+print('clear?', r.wants_cache_clear('clear the cache'))
+print('servers:', {k: (v['wired'], v['role'][:40]) for k, v in r.UPSTREAM_MCP_SERVERS.items()})
+"
+```
+
+Expected: `{'policy_rates'}`, `{'monetary_stance'}`,
+`{'monetary_stance', 'policy_rates'}` (stance auto-adds its dependency, so it
+is derived from one rates pull instead of fetched twice), `True/True/True`,
+and the four upstream servers with wiring verdicts. The agent logs the chosen
+route per query (`monetary services selected=... via=...`).

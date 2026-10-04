@@ -34,6 +34,12 @@ class MonetarySectorSettings(BaseSettings):
         description="Reasoning output budget for the monetary sector agent (longer, detailed responses).",
     )
 
+    # Tavily Web Search API key (real-time MPC news enrichment)
+    TVLY_KEY_1: str | None = Field(
+        default=None,
+        description="Tavily API key for real-time MPC news search.",
+    )
+
     # RBI DBIE endpoints
     DBIE_CDN_BASE: str = Field(
         default="https://dbie.rbihub.in/data",

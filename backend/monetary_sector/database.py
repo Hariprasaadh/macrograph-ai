@@ -213,6 +213,40 @@ def log_fetch(tool_name: str, status: str, rows_written: int = 0, error_msg: str
         con.commit()
 
 
+_DATA_TABLES: tuple[str, ...] = (
+    "policy_rates",
+    "money_supply",
+    "system_liquidity",
+    "monetary_stance",
+)
+
+
+def clear_cached_tables(tables: list[str] | None = None) -> dict[str, int]:
+    """Delete cached rows from the sector data tables (never the fetch_log audit).
+
+    Used to prove the live-or-unavailable path on systems where MCP servers
+    are unreachable: with no cache, failed live fetches raise instead of
+    serving stale rows. Returns per-table deleted row counts and records the
+    clear action itself in fetch_log.
+    """
+    targets = list(tables) if tables else list(_DATA_TABLES)
+    for table in targets:
+        if table not in _ALLOWED_TABLES:
+            raise ValueError(f"Invalid table: {table!r}")
+        if table == "fetch_log":
+            raise ValueError("The fetch_log audit table cannot be cleared.")
+    cleared: dict[str, int] = {}
+    with get_connection() as con:
+        for table in targets:
+            count = con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
+            deleted = int(count[0]) if count else 0
+            con.execute(f"DELETE FROM {table}")
+            cleared[table] = deleted
+        con.commit()
+    log_fetch("clear_monetary_cache", "cache_cleared", rows_written=sum(cleared.values()))
+    return cleared
+
+
 def query_latest_rows(table: str, limit: int) -> list[dict[str, Any]]:
     if table not in _ALLOWED_TABLES:
         raise ValueError(f"Invalid table: {table!r}")

@@ -17,6 +17,7 @@ from monetary_sector.models import (
     UnavailableResponse,
 )
 from monetary_sector.parsers import parse_money_supply, parse_policy_rates, parse_system_liquidity
+from monetary_sector import cache_loaders
 
 
 @pytest.fixture
@@ -181,7 +182,7 @@ class TestDBIEMCPParsers:
         assert records[0].citation.source_values["sdf"] == 91747
 
     def test_cache_preserves_newest_first_order(self, temp_db, valid_citation):
-        from monetary_sector.client import _load_cache, _save_records
+        from monetary_sector.cache_loaders import _load_cache, _save_records
 
         newer = PolicyRatesRecord(
             period="newer-test-period",
@@ -258,7 +259,7 @@ class TestMonetaryMCPWiring:
         async def fake_call(*_args, **_kwargs):
             return _ECO_PAYLOAD
 
-        monkeypatch.setattr("monetary_sector.mcp_transport.call_stdio_mcp_tool", fake_call)
+        monkeypatch.setattr(client, "_call_eco_policy_tool", fake_call)
         record = await client._fetch_policy_rates_from_eco_policy()
 
         assert record is not None
@@ -279,35 +280,46 @@ class TestMonetaryMCPWiring:
         async def fake_call(*_args, **_kwargs):
             raise TimeoutError("spawn failed")
 
-        monkeypatch.setattr("monetary_sector.mcp_transport.call_stdio_mcp_tool", fake_call)
+        monkeypatch.setattr(client, "_call_eco_policy_tool", fake_call)
         assert await client._fetch_policy_rates_from_eco_policy() is None
 
         async def fake_empty(*_args, **_kwargs):
             return {"data": {"stance": "Neutral"}, "provenance": {}}
 
-        monkeypatch.setattr("monetary_sector.mcp_transport.call_stdio_mcp_tool", fake_empty)
+        monkeypatch.setattr(client, "_call_eco_policy_tool", fake_empty)
         assert await client._fetch_policy_rates_from_eco_policy() is None
 
     @pytest.mark.asyncio
     async def test_tavily_news_maps_items_and_never_raises(self, monkeypatch):
+        import httpx
+        from unittest.mock import patch
         from monetary_sector import client
+        from monetary_sector.config import monetary_settings
 
-        monkeypatch.setenv("TVLY_KEY_1", "test-key")
+        monkeypatch.setattr(monetary_settings, "TVLY_KEY_1", "test-key")
 
-        async def fake_call(*_args, **_kwargs):
-            return _TAVILY_PAYLOAD
+        async def fake_post(self_inner, url, **kwargs):
+            assert url == "https://api.tavily.com/search"
+            return httpx.Response(200, json=_TAVILY_PAYLOAD)
 
-        monkeypatch.setattr("monetary_sector.mcp_transport.call_stdio_mcp_tool", fake_call)
-        items = await client.fetch_mpc_news_via_tavily_mcp("MPC decision")
+        with patch.object(httpx.AsyncClient, "post", fake_post):
+            items = await client.fetch_mpc_news_via_tavily_mcp("MPC decision")
         assert len(items) == 1
         assert items[0]["title"] == "RBI holds repo rate at 5.25%"
         assert items[0]["url"] == "https://example.com/mpc"
+        assert items[0]["source"] == "Tavily AI Search"
 
-        async def fake_fail(*_args, **_kwargs):
-            raise ConnectionError("bridge down")
+        async def fake_forbidden(self_inner, url, **kwargs):
+            return httpx.Response(403, json={"error": "denied"})
 
-        monkeypatch.setattr("monetary_sector.mcp_transport.call_stdio_mcp_tool", fake_fail)
-        assert await client.fetch_mpc_news_via_tavily_mcp("MPC decision") == []
+        with patch.object(httpx.AsyncClient, "post", fake_forbidden):
+            assert await client.fetch_mpc_news_via_tavily_mcp("MPC decision") == []
+
+        async def fake_down(self_inner, url, **kwargs):
+            raise httpx.ConnectError("no route")
+
+        with patch.object(httpx.AsyncClient, "post", fake_down):
+            assert await client.fetch_mpc_news_via_tavily_mcp("MPC decision") == []
 
     def test_news_gating(self):
         import monetary_sector.agent as agent_module
@@ -406,7 +418,7 @@ class TestMonetaryForceLive:
         from monetary_sector.client import MonetaryDataUnavailableError
         from monetary_sector.models import PolicyRatesRecord
 
-        client._save_records(
+        cache_loaders._save_records(
             "policy_rates",
             [PolicyRatesRecord(period="cached-period", repo_rate_pct=6.0, citation=valid_citation)],
             "test_policy_rates",
@@ -476,189 +488,232 @@ class TestMonetaryForceLive:
 
 class TestMonetaryMCPTransport:
     @pytest.mark.asyncio
-    async def test_stdio_tool_retries_transient_spawn_failure(self, monkeypatch):
-        """A slow-booting MCP server (first spawn times out) is retried once."""
-        import asyncio as _asyncio
-        from monetary_sector import mcp_transport
+    async def test_eco_tool_call_via_sdk_stdio(self, monkeypatch):
+        """_call_eco_policy_tool speaks MCP over SDK stdio and extracts payload."""
+        from types import SimpleNamespace
 
-        calls = {"spawn": 0}
+        import mcp as mcp_module
+        import mcp.client.stdio as stdio_module
+        from monetary_sector import client
 
-        class _FakeStdin:
-            def write(self, _data):
-                pass
+        seen = {}
 
-            async def drain(self):
-                pass
+        class FakeSession:
+            async def __aenter__(self):
+                return self
 
-            def is_closing(self):
+            async def __aexit__(self, *args):
                 return False
 
-            def close(self):
-                pass
+            async def initialize(self):
+                seen["initialized"] = True
 
-        class _FakeStdout:
-            LINES = [
-                b'{"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "2025-03-26"}}',
-                b'{"jsonrpc": "2.0", "id": 2, "result": {"content": [{"type": "text", "text": "{\\"ok\\": true}"}]}}',
-            ]
+            async def call_tool(self, name, arguments=None, **kwargs):
+                seen["tool"] = (name, arguments)
+                return SimpleNamespace(
+                    structuredContent=None,
+                    content=[SimpleNamespace(text=json.dumps(_ECO_PAYLOAD), type="text")],
+                    isError=False,
+                )
 
-            def __init__(self):
-                self._lines = list(self.LINES)
+        def fake_stdio(params):
+            seen["command"] = params.command
+            seen["has_env"] = params.env is None or isinstance(params.env, dict)
 
-            async def readline(self):
-                return self._lines.pop(0) if self._lines else b""
+            class FakeCM:
+                async def __aenter__(self):
+                    return (object(), object())
 
-        class _FakeProcess:
-            def __init__(self):
-                self.stdin = _FakeStdin()
-                self.stdout = _FakeStdout()
-                self.returncode = 0
+                async def __aexit__(self, *args):
+                    return False
 
-            async def wait(self):
-                return 0
+            return FakeCM()
 
-            def kill(self):
-                pass
+        monkeypatch.setattr(stdio_module, "stdio_client", fake_stdio)
+        monkeypatch.setattr(mcp_module, "ClientSession", lambda *a, **k: FakeSession())
 
-        async def fake_spawn(*_args, **_kwargs):
-            calls["spawn"] += 1
-            if calls["spawn"] == 1:
-                raise TimeoutError("boot too slow")
-            return _FakeProcess()
-
-        monkeypatch.setattr(_asyncio, "create_subprocess_exec", fake_spawn)
-        payload = await mcp_transport.call_stdio_mcp_tool(
-            ("uvx", "eco-policy-mcp"),
-            "rbi_get_policy_rates",
-            {},
-            timeout=5.0,
-            label="eco-policy",
-            retries=1,
-        )
-        assert payload == {"ok": True}
-        assert calls["spawn"] == 2
+        payload = await client._call_eco_policy_tool()
+        assert payload == _ECO_PAYLOAD
+        assert seen["initialized"] is True
+        assert seen["tool"] == ("rbi_get_policy_rates", {})
+        assert seen["command"] == "uvx"
+        assert seen["has_env"] is True
 
     @pytest.mark.asyncio
-    async def test_stdio_tool_gives_up_after_retries(self, monkeypatch):
-        import asyncio as _asyncio
-        from monetary_sector import mcp_transport
+    async def test_eco_tool_call_reports_tool_error(self, monkeypatch):
+        from types import SimpleNamespace
 
-        async def always_down(*_args, **_kwargs):
-            raise ConnectionError("no process")
+        import mcp as mcp_module
+        import mcp.client.stdio as stdio_module
+        from monetary_sector import client
 
-        monkeypatch.setattr(_asyncio, "create_subprocess_exec", always_down)
-        with pytest.raises(ConnectionError):
-            await mcp_transport.call_stdio_mcp_tool(
-                ("uvx", "eco-policy-mcp"),
-                "rbi_get_policy_rates",
-                {},
-                timeout=5.0,
-                label="eco-policy",
-                retries=1,
-            )
+        class FakeSession:
+            async def __aenter__(self):
+                return self
 
-    def test_save_records_logs_fetch_status(self, temp_db, valid_citation):
-        """fetch_log must distinguish live MCP rows from upstream snapshots."""
+            async def __aexit__(self, *args):
+                return False
+
+            async def initialize(self):
+                pass
+
+            async def call_tool(self, name, arguments=None, **kwargs):
+                return SimpleNamespace(
+                    structuredContent=None, content=[], isError=True
+                )
+
+        class FakeCM:
+            async def __aenter__(self):
+                return (object(), object())
+
+            async def __aexit__(self, *args):
+                return False
+
+        monkeypatch.setattr(stdio_module, "stdio_client", lambda params: FakeCM())
+        monkeypatch.setattr(mcp_module, "ClientSession", lambda *a, **k: FakeSession())
+
+        with pytest.raises(ValueError):
+            await client._call_eco_policy_tool()
+
+
+
+class TestMonetaryMCPRegistry:
+    def test_keyword_routing_retrieves_only_necessary_functions(self):
+        from monetary_sector import mcp_registry
+
+        assert mcp_registry.match_services("What is the repo rate?") == {"policy_rates"}
+        assert mcp_registry.match_services("M3 broad money growth?") == {"money_supply"}
+        assert mcp_registry.match_services("Explain the MPC stance") == {"monetary_stance"}
+        assert mcp_registry.match_services("How are things going?") == set()
+
+    def test_dependencies_expand_stance_to_rates(self):
+        from monetary_sector import mcp_registry
+
+        assert mcp_registry.expand_dependencies({"monetary_stance"}) == {
+            "monetary_stance", "policy_rates",
+        }
+        assert mcp_registry.expand_dependencies({"policy_rates"}) == {"policy_rates"}
+        assert mcp_registry.expand_dependencies(set()) == set()
+
+    def test_upstream_catalog_documents_wiring_verdicts(self):
+        from monetary_sector import mcp_registry
+
+        servers = mcp_registry.UPSTREAM_MCP_SERVERS
+        assert servers["eco-policy"]["wired"] is True
+        assert servers["dbie"]["wired"] is True
+        assert servers["tavily-direct"]["wired"] is True
+        assert servers["finstack"]["wired"] is False
+        assert "rbi_get_policy_rates" in servers["eco-policy"]["tools"]
+
+    def test_agent_keywords_come_from_registry(self):
+        import monetary_sector.agent as agent_module
+        from monetary_sector import mcp_registry
+
+        assert agent_module._SERVICE_KEYWORDS == {
+            name: spec.triggers for name, spec in mcp_registry.MONETARY_TOOLS.items()
+        }
+
+
+class TestStanceDerivation:
+    def test_derive_and_save_stance_snapshot(self, temp_db, valid_citation):
         from monetary_sector import client, database
         from monetary_sector.models import PolicyRatesRecord
 
-        client._save_records(
-            "policy_rates",
-            [PolicyRatesRecord(period="p1", repo_rate_pct=5.0, citation=valid_citation)],
-            "get_policy_rates",
-            fetch_status="live",
+        record = PolicyRatesRecord(
+            period="2026-08-05", repo_rate_pct=5.25, stance="Neutral",
+            citation=valid_citation,
         )
-        client._save_records(
-            "policy_rates",
-            [PolicyRatesRecord(period="p2", repo_rate_pct=5.0, citation=valid_citation)],
-            "get_policy_rates",
-        )
+        out = client.derive_and_save_stance_snapshot([record])
+        assert out is not None
+        assert out.repo_rate_pct == 5.25
+        assert out.stance_label == "Neutral"
+        assert out.period == "2026-08-05"
+        assert client.derive_and_save_stance_snapshot([]) is None
+        assert client.derive_and_save_stance_snapshot([{"nope": 1}]) is None
         with database.get_connection() as con:
-            rows = con.execute("SELECT tool_name, status FROM fetch_log ORDER BY id").fetchall()
-        assert [row[1] for row in rows] == ["live", "upstream_snapshot"]
+            saved = con.execute(
+                "SELECT repo_rate_pct FROM monetary_stance"
+            ).fetchall()
+        assert saved and saved[0][0] == 5.25
 
-    def test_mcp_transport_timeout_default(self):
-        from monetary_sector.config import MonetarySectorSettings
-
-        assert MonetarySectorSettings(_env_file=None).MONETARY_MCP_TIMEOUT == 90
     @pytest.mark.asyncio
-    async def test_stdio_calls_are_capped_at_two_concurrent_spawns(self, monkeypatch):
-        """Overlapping queries must not spawn a thundering herd of uvx/npx
-        processes; at most two MCP sessions run concurrently."""
-        import asyncio as _asyncio
-        from monetary_sector import mcp_transport
+    async def test_agent_derives_stance_without_second_rates_pull(
+        self, temp_db, valid_citation, monkeypatch
+    ):
+        """Stance reuses the fetched rates: the standalone stance fetcher must
+        never run when rates succeeded (one live pull per query)."""
+        import monetary_sector.agent as agent_module
+        from monetary_sector.models import PolicyRatesRecord
 
-        state = {"active": 0, "peak": 0}
-
-        class _FakeStdin:
-            def write(self, _data):
-                pass
-
-            async def drain(self):
-                pass
-
-            def is_closing(self):
-                return False
-
-            def close(self):
-                pass
-
-        class _FakeStdout:
-            LINES = [
-                b'{"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "2025-03-26"}}',
-                b'{"jsonrpc": "2.0", "id": 2, "result": {"content": [{"type": "text", "text": "{\\"ok\\": true}"}]}}',
-            ]
-
-            def __init__(self):
-                self._lines = list(self.LINES)
-
-            async def readline(self):
-                return self._lines.pop(0) if self._lines else b""
-
-        class _FakeProcess:
-            def __init__(self):
-                self.stdin = _FakeStdin()
-                self.stdout = _FakeStdout()
-                self.returncode = 0
-
-            async def wait(self):
-                state["active"] -= 1
-                return 0
-
-            def kill(self):
-                pass
-
-        async def fake_spawn(*_args, **_kwargs):
-            state["active"] += 1
-            state["peak"] = max(state["peak"], state["active"])
-            await _asyncio.sleep(0.05)
-            return _FakeProcess()
-
-        monkeypatch.setattr(_asyncio, "create_subprocess_exec", fake_spawn)
-        results = await _asyncio.gather(
-            *(
-                mcp_transport.call_stdio_mcp_tool(
-                    ("uvx", "eco-policy-mcp"),
-                    "rbi_get_policy_rates",
-                    {},
-                    5.0,
-                    "eco-policy",
-                )
-                for _ in range(5)
-            )
+        rate_record = PolicyRatesRecord(
+            period="2026-08-05", repo_rate_pct=5.25, stance="Neutral",
+            citation=valid_citation,
         )
-        assert [item["ok"] for item in results] == [True] * 5
-        assert state["peak"] <= 2
+
+        async def fake_rates():
+            return [rate_record]
+
+        async def fail_if_stance_fetched():
+            raise AssertionError("stance must derive from rates, not refetch")
+
+        async def fake_no_news(_query):
+            return []
+
+        async def fake_reason(**kwargs):
+            return "Evidence-based response."
+
+        monkeypatch.setitem(agent_module._FETCHERS, "policy_rates", fake_rates)
+        monkeypatch.setitem(agent_module._FETCHERS, "monetary_stance", fail_if_stance_fetched)
+        monkeypatch.setattr(agent_module, "reason_over_sector_data", fake_reason)
+        monkeypatch.setattr(
+            "monetary_sector.client.fetch_mpc_news_via_tavily_mcp", fake_no_news
+        )
+
+        result = await agent_module.monetary_agent_node({
+            "query": "Repo rate and stance?",
+            "_selected_services": {"monetary_stance"},
+        })
+        stance = result["monetary_sector_data"]["monetary_stance"]
+        assert stance["repo_rate_pct"] == 5.25
+        assert stance["stance_label"] == "Neutral"
+        assert result["monetary_sector_freshness"]["monetary_stance"] != "unavailable"
 
     @pytest.mark.asyncio
-    async def test_tavily_news_skipped_without_configured_key(self, monkeypatch):
-        """No TVLY key anywhere: no embedded fallback, just [] (never raises)."""
-        from monetary_sector import client
+    async def test_agent_falls_back_to_stance_fetcher_when_rates_fail(
+        self, monkeypatch
+    ):
+        """Rates down: the standalone stance fetcher still serves from its own chain."""
+        import monetary_sector.agent as agent_module
 
-        monkeypatch.setenv("TVLY_KEY_1", "")
-        monkeypatch.setenv("TAVILY_API_KEY", "")
-        assert client._tavily_search_url() is None
-        assert await client.fetch_mpc_news_via_tavily_mcp("MPC decision") == []
+        async def fake_rates_fail():
+            raise RuntimeError("eco down")
+
+        async def fake_stance_fallback():
+            return [{
+                "period": "cached-period",
+                "repo_rate_pct": 5.0,
+                "citation": {"freshness": "cached"},
+            }]
+
+        async def fake_no_news(_query):
+            return []
+
+        async def fake_reason(**kwargs):
+            return "Evidence-based response."
+
+        monkeypatch.setitem(agent_module._FETCHERS, "policy_rates", fake_rates_fail)
+        monkeypatch.setitem(agent_module._FETCHERS, "monetary_stance", fake_stance_fallback)
+        monkeypatch.setattr(agent_module, "reason_over_sector_data", fake_reason)
+        monkeypatch.setattr(
+            "monetary_sector.client.fetch_mpc_news_via_tavily_mcp", fake_no_news
+        )
+
+        result = await agent_module.monetary_agent_node({
+            "query": "Stance please",
+            "_selected_services": {"monetary_stance"},
+        })
+        assert result["monetary_sector_data"]["monetary_stance"]["repo_rate_pct"] == 5.0
+        assert any("policy_rates" in error for error in result["monetary_sector_errors"])
 
 
 class TestMonetaryReasoningBudget:
@@ -724,7 +779,7 @@ class TestMonetaryFreshCacheTTL:
         from monetary_sector import client
         from monetary_sector.models import PolicyRatesRecord
 
-        client._save_records(
+        cache_loaders._save_records(
             "policy_rates",
             [PolicyRatesRecord(period="fresh-period", repo_rate_pct=5.25, citation=valid_citation)],
             "get_policy_rates",
@@ -782,7 +837,7 @@ class TestMonetaryFreshCacheTTL:
         from monetary_sector.client import MonetaryDataUnavailableError
         from monetary_sector.models import PolicyRatesRecord
 
-        client._save_records(
+        cache_loaders._save_records(
             "policy_rates",
             [PolicyRatesRecord(period="fresh-period", repo_rate_pct=5.0, citation=valid_citation)],
             "get_policy_rates",
@@ -799,3 +854,119 @@ class TestMonetaryFreshCacheTTL:
 
         with pytest.raises(MonetaryDataUnavailableError):
             await client.fetch_policy_rates(lookback_months=1, force_live=True)
+
+
+class TestMonetaryCacheClear:
+    def test_clear_deletes_data_rows_but_preserves_audit(
+        self, temp_db, valid_citation
+    ):
+        from monetary_sector import client, database
+        from monetary_sector.models import PolicyRatesRecord
+
+        cache_loaders._save_records(
+            "policy_rates",
+            [PolicyRatesRecord(period="p1", repo_rate_pct=5.0, citation=valid_citation)],
+            "get_policy_rates",
+        )
+        cleared = database.clear_cached_tables()
+        assert cleared["policy_rates"] == 1
+        assert cleared["money_supply"] == 0
+        assert set(cleared) == {
+            "policy_rates", "money_supply", "system_liquidity", "monetary_stance",
+        }
+        with database.get_connection() as con:
+            remaining = con.execute("SELECT COUNT(*) FROM policy_rates").fetchone()[0]
+            log_rows = con.execute(
+                "SELECT tool_name, status FROM fetch_log WHERE tool_name = 'clear_monetary_cache'"
+            ).fetchall()
+        assert remaining == 0
+        assert log_rows and log_rows[0][1] == "cache_cleared"
+
+    def test_clear_rejects_unknown_and_audit_tables(self, temp_db):
+        from monetary_sector import database
+
+        with pytest.raises(ValueError):
+            database.clear_cached_tables(["drop_table"])
+        with pytest.raises(ValueError):
+            database.clear_cached_tables(["fetch_log"])
+
+    @pytest.mark.asyncio
+    async def test_mcp_news_tool_returns_typed_response(self, monkeypatch):
+        import httpx
+        from unittest.mock import patch
+        from monetary_sector.config import monetary_settings
+        from monetary_sector.mcp_server import get_realtime_monetary_news
+
+        monkeypatch.setattr(monetary_settings, "TVLY_KEY_1", "test-key")
+
+        async def fake_post(self_inner, url, **kwargs):
+            return httpx.Response(200, json=_TAVILY_PAYLOAD)
+
+        with patch.object(httpx.AsyncClient, "post", fake_post):
+            result = await get_realtime_monetary_news(
+                query="MPC decision", max_results=5
+            )
+        assert result.status == DataFreshness.LIVE
+        assert result.total_results == 1
+        assert result.news_items[0].title == "RBI holds repo rate at 5.25%"
+        assert result.news_items[0].source == "Tavily AI Search"
+
+    @pytest.mark.asyncio
+    async def test_mcp_tool_clears_cache(self, temp_db, valid_citation):
+        from monetary_sector import client
+        from monetary_sector.mcp_server import clear_monetary_cache
+        from monetary_sector.models import PolicyRatesRecord
+
+        cache_loaders._save_records(
+            "policy_rates",
+            [PolicyRatesRecord(period="p1", repo_rate_pct=5.0, citation=valid_citation)],
+            "get_policy_rates",
+        )
+        result = await clear_monetary_cache()
+        assert result.status == "cache_cleared"
+        assert result.cleared_tables["policy_rates"] == 1
+        assert result.total_rows_deleted >= 1
+        assert "unavailable" in result.message
+
+    @pytest.mark.asyncio
+    async def test_api_delete_cache(self, temp_db, valid_citation):
+        from httpx import AsyncClient, ASGITransport
+        from monetary_sector import client
+        from monetary_sector.api.app import app
+        from monetary_sector.models import PolicyRatesRecord
+
+        cache_loaders._save_records(
+            "policy_rates",
+            [PolicyRatesRecord(period="p1", repo_rate_pct=5.0, citation=valid_citation)],
+            "get_policy_rates",
+        )
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            res = await ac.delete("/cache")
+        assert res.status_code == 200
+        body = res.json()
+        assert body["status"] == "cache_cleared"
+        assert body["cleared_tables"]["policy_rates"] == 1
+
+    @pytest.mark.asyncio
+    async def test_agent_handles_clear_cache_intent(self, monkeypatch):
+        import monetary_sector.agent as agent_module
+
+        async def fail_if_fetched(*_args, **_kwargs):
+            raise AssertionError("clear-cache intent must not fetch any dataset")
+
+        for name in agent_module._FETCHERS:
+            monkeypatch.setitem(agent_module._FETCHERS, name, fail_if_fetched)
+
+        result = await agent_module.monetary_agent_node({"query": "Please clear the cache"})
+        assert "cleared" in result["monetary_sector_analysis"]
+        assert result["monetary_sector_data"] == {}
+        assert result["monetary_sector_freshness"] == {}
+        assert result["monetary_sector_errors"] == []
+
+    def test_clear_intent_detection(self):
+        import monetary_sector.agent as agent_module
+
+        assert agent_module._wants_cache_clear("clear the cache please")
+        assert agent_module._wants_cache_clear("Reset cache and retry")
+        assert not agent_module._wants_cache_clear("What is the repo rate?")
+        assert not agent_module._wants_cache_clear("Fetch LIVE repo rate data")

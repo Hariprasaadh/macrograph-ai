@@ -11,9 +11,29 @@ from core.sector_reasoning import (
     select_relevant_services_with_llm,
 )
 from monetary_sector import client
+from monetary_sector import database as db
+from monetary_sector import mcp_registry
 from monetary_sector.config import monetary_settings
 
 logger = logging.getLogger(__name__)
+
+# Routing triggers live in the MCP registry (single source of truth). The
+# _SERVICE_KEYWORDS alias preserves the gateway orchestrator's import contract.
+_SERVICE_KEYWORDS = {
+    name: spec.triggers for name, spec in mcp_registry.MONETARY_TOOLS.items()
+}
+
+# Prompt-intent predicates live in the registry; aliases keep call sites short.
+_needs_mpc_news = mcp_registry.wants_news
+_wants_force_live = mcp_registry.wants_force_live
+_wants_cache_clear = mcp_registry.wants_cache_clear
+
+_FETCHERS = {
+    "policy_rates": lambda: client.fetch_policy_rates(lookback_months=6),
+    "money_supply": lambda: client.fetch_money_supply(lookback_months=6),
+    "system_liquidity": lambda: client.fetch_system_liquidity(lookback_months=6),
+    "monetary_stance": lambda: client.fetch_monetary_stance_snapshot(),
+}
 
 _SYSTEM_PROMPT = """You are the Senior Monetary Policy & Liquidity Specialist for Macrograph AI.
 
@@ -49,54 +69,6 @@ STRICT ANTI-HALLUCINATION & PROVENANCE RULES:
 - TABLE & PROVENANCE INTEGRITY: NEVER use placeholder phrases such as "Same as above", "ditto", "as above", or quotation marks to indicate repetition in the 'Source & Freshness' column. Every individual row in the Observations Table must explicitly state the exact source authority and freshness status.
 """
 
-_SERVICE_KEYWORDS = {
-    "policy_rates": ("repo", "sdf", "msf", "bank rate", "reverse repo", "crr", "slr", "policy rate", "rate corridor"),
-    "money_supply": ("money supply", "money stock", "m0", "m1", "m2", "m3", "currency in circulation"),
-    "system_liquidity": ("liquidity", "laf", "absorption", "injection", "liquidity operations", "wacr"),
-    "monetary_stance": ("monetary stance", "mpc stance", "policy stance", "real policy rate", "restrictive", "accommodative", "neutral stance"),
-}
-
-_FETCHERS = {
-    "policy_rates": lambda: client.fetch_policy_rates(lookback_months=6),
-    "money_supply": lambda: client.fetch_money_supply(lookback_months=6),
-    "system_liquidity": lambda: client.fetch_system_liquidity(lookback_months=6),
-    "monetary_stance": lambda: client.fetch_monetary_stance_snapshot(),
-}
-
-_NEWS_KEYWORDS = (
-    "news",
-    "latest",
-    "recent",
-    "mpc meeting",
-    "mpc decision",
-    "announcement",
-    "governor",
-    "speech",
-    "press release",
-    "minutes",
-)
-
-
-_FORCE_LIVE_KEYWORDS = (
-    "live",
-    "real-time",
-    "real time",
-    "realtime",
-    "up to date",
-    "up-to-date",
-    "fresh",
-)
-
-
-def _wants_force_live(query: str) -> bool:
-    """Detect an explicit live-data request (e.g. 'fetch live rates').
-
-    Forced queries bypass the DuckDB cache entirely: live MCP failure raises
-    instead of silently serving cached rows.
-    """
-    lowered = query.casefold()
-    return any(keyword in lowered for keyword in _FORCE_LIVE_KEYWORDS)
-
 
 async def _fetch_forced_live(name: str) -> Any:
     """Fetch one service with the cache fallback disabled."""
@@ -111,40 +83,98 @@ async def _fetch_forced_live(name: str) -> Any:
     raise ValueError(f"Unknown monetary service: {name}")
 
 
-def _needs_mpc_news(query: str, selected: set[str]) -> bool:
-    """Fetch Tavily MPC news only for stance questions or recency-seeking queries.
+def _ingest_dataset(
+    name: str,
+    records: list[dict[str, Any]],
+    data_context: dict[str, Any],
+    evidence_context: dict[str, Any],
+    freshness: dict[str, str],
+    citations: list[dict[str, Any]],
+) -> None:
+    """Fold one service's record list into the node maps.
 
-    Keeps ordinary data queries fast by skipping the remote-search round trip.
+    Shared by the direct, derived-stance, and fallback-stance paths so all
+    three produce identical context, citation, and freshness shapes.
     """
-    if "monetary_stance" in selected:
-        return True
-    lowered = query.casefold()
-    return any(keyword in lowered for keyword in _NEWS_KEYWORDS)
+    if not records:
+        data_context[name] = {"period": None}
+        evidence_context[name] = data_context[name]
+        freshness[name] = "unavailable"
+        return
+    latest = records[0]
+    data_context[name] = {
+        key: value for key, value in latest.items() if key not in {"id", "citation"}
+    }
+    evidence_context[name] = {
+        key: value for key, value in latest.items() if key != "id"
+    }
+    citation = latest.get("citation")
+    if isinstance(citation, dict):
+        citations.append({"dataset": name, **citation})
+        freshness[name] = str(citation.get("freshness", "unavailable"))
+    else:
+        freshness[name] = "unavailable"
 
 
 async def monetary_agent_node(state: dict[str, Any]) -> dict[str, Any]:
     query = str(state.get("query", "")).strip()[:500]
+    if _wants_cache_clear(query):
+        cleared = db.clear_cached_tables()
+        total = sum(cleared.values())
+        detail = ", ".join(f"{table}: {count}" for table, count in cleared.items())
+        return {
+            "monetary_sector_analysis": (
+                f"Monetary sector cache cleared ({total} rows: {detail}). "
+                "The fetch_log audit was preserved. Subsequent queries pull live "
+                "MCP data; if all MCP servers are unreachable they now report "
+                "unavailable instead of serving stale rows."
+            ),
+            "monetary_sector_data": {},
+            "monetary_sector_news": [],
+            "monetary_sector_force_live": False,
+            "monetary_sector_errors": [],
+            "monetary_sector_citations": [],
+            "monetary_sector_freshness": {},
+        }
     preselected = state.get("_selected_services")
     if isinstance(preselected, (list, set, tuple)):
         selected = set(preselected) & set(_FETCHERS)
         selection_error = state.get("_selection_error")
+        selection_via = "preselected"
     else:
-        selected, selection_error = await select_relevant_services_with_llm(
-            query=query,
-            service_keywords=_SERVICE_KEYWORDS,
-            api_key=monetary_settings.MONETARY_LLM_KEY,
-            model=monetary_settings.MONETARY_LLM_MODEL,
-        )
-    names = list(_FETCHERS)
+        keyword_hits = mcp_registry.match_services(query)
+        if keyword_hits:
+            selected, selection_error = keyword_hits, None
+            selection_via = "registry-keywords"
+        else:
+            selected, selection_error = await select_relevant_services_with_llm(
+                query=query,
+                service_keywords=_SERVICE_KEYWORDS,
+                api_key=monetary_settings.MONETARY_LLM_KEY,
+                model=monetary_settings.MONETARY_LLM_MODEL,
+            )
+            selection_via = "llm-router"
+    selected = mcp_registry.expand_dependencies(selected)
     force_live = _wants_force_live(query)
+    fetch_news = _needs_mpc_news(query, selected)
+    logger.info(
+        "monetary services selected=%s via=%s force_live=%s news=%s",
+        sorted(selected), selection_via, force_live, fetch_news,
+    )
+    names = list(_FETCHERS)
+    # The stance snapshot derives from the fetched policy rates, so it is
+    # never fetched twice for one query; the standalone stance fetcher only
+    # runs as a fallback when rate fetching fails.
+    want_stance = "monetary_stance" in selected
+    fetch_order = [name for name in names if name in selected and name != "monetary_stance"]
     if force_live:
         results = await asyncio.gather(
-            *(_fetch_forced_live(name) for name in names if name in selected),
+            *(_fetch_forced_live(name) for name in fetch_order),
             return_exceptions=True,
         )
     else:
         results = await asyncio.gather(
-            *(_FETCHERS[name]() for name in names if name in selected),
+            *(_FETCHERS[name]() for name in fetch_order),
             return_exceptions=True,
         )
 
@@ -153,7 +183,8 @@ async def monetary_agent_node(state: dict[str, Any]) -> dict[str, Any]:
     freshness: dict[str, str] = {}
     citations: list[dict[str, Any]] = []
     errors = [selection_error] if selection_error else []
-    for name, result in zip((name for name in names if name in selected), results):
+    fetched_records: dict[str, list] = {}
+    for name, result in zip(fetch_order, results):
         if isinstance(result, Exception):
             errors.append(f"{name}: {result}")
             data_context[name] = {"period": None}
@@ -161,27 +192,51 @@ async def monetary_agent_node(state: dict[str, Any]) -> dict[str, Any]:
             freshness[name] = "unavailable"
             continue
         records = [record_to_dict(item) for item in result]
-        if not records:
-            data_context[name] = {"period": None}
-            evidence_context[name] = data_context[name]
-            freshness[name] = "unavailable"
-            continue
-        latest = records[0]
-        data_context[name] = {
-            key: value for key, value in latest.items() if key not in {"id", "citation"}
-        }
-        evidence_context[name] = {
-            key: value for key, value in latest.items() if key != "id"
-        }
-        citation = latest.get("citation")
-        if isinstance(citation, dict):
-            citations.append({"dataset": name, **citation})
-            freshness[name] = str(citation.get("freshness", "unavailable"))
+        fetched_records[name] = list(result)
+        _ingest_dataset(
+            name, records,
+            data_context=data_context,
+            evidence_context=evidence_context,
+            freshness=freshness,
+            citations=citations,
+        )
+
+    if want_stance:
+        stance_record = client.derive_and_save_stance_snapshot(
+            fetched_records.get("policy_rates", [])
+        )
+        if stance_record is None:
+            try:
+                fallback = (
+                    await _fetch_forced_live("monetary_stance")
+                    if force_live
+                    else await _FETCHERS["monetary_stance"]()
+                )
+                _ingest_dataset(
+                    "monetary_stance",
+                    [record_to_dict(item) for item in fallback],
+                    data_context=data_context,
+                    evidence_context=evidence_context,
+                    freshness=freshness,
+                    citations=citations,
+                )
+            except Exception as exc:
+                errors.append(f"monetary_stance: {exc}")
+                data_context["monetary_stance"] = {"period": None}
+                evidence_context["monetary_stance"] = data_context["monetary_stance"]
+                freshness["monetary_stance"] = "unavailable"
         else:
-            freshness[name] = "unavailable"
+            _ingest_dataset(
+                "monetary_stance",
+                [record_to_dict(stance_record)],
+                data_context=data_context,
+                evidence_context=evidence_context,
+                freshness=freshness,
+                citations=citations,
+            )
 
     news_items: list[dict[str, Any]] = []
-    if _needs_mpc_news(query, selected):
+    if fetch_news:
         try:
             news_items = await client.fetch_mpc_news_via_tavily_mcp(query)
         except Exception as exc:
