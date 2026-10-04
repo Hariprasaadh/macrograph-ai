@@ -18,7 +18,6 @@ from real_sector.models import (
     IIPUseBasedRecord,
     ManufacturingGVARecord,
     MarketContextRecord,
-    OBICUSRecord,
     RealSectorJoinedRecord,
 )
 
@@ -50,6 +49,11 @@ def make_citation(
     retrieval_url: str,
     observation_period: str,
     freshness: DataFreshness = DataFreshness.LIVE,
+    dataset: str | None = None,
+    frequency: str | None = None,
+    unit: str | None = None,
+    source_note: str | None = None,
+    as_of: str | None = None,
 ) -> Citation:
     """Generate a standard Citation for Real Sector observations."""
     return Citation(
@@ -60,6 +64,11 @@ def make_citation(
         retrieval_url=retrieval_url,
         observation_period=observation_period,
         freshness=freshness,
+        dataset=dataset,
+        frequency=frequency,
+        unit=unit,
+        source_note=source_note,
+        as_of=as_of,
     )
 
 
@@ -95,9 +104,12 @@ def parse_iip_sectoral(payload: Any) -> list[IIPSectoralRecord]:
         citation = make_citation(
             authority=_MOSPI_AUTHORITY,
             document_title="Quick Estimates of Index of Industrial Production (IIP)",
-            table_reference="mospi_iip_sectoral_2011_12",
-            retrieval_url="https://mospi.gov.in/iip",
+            table_reference="MoSPI eSankhyiki IIP (Monthly, Base 2011-12)",
+            retrieval_url="https://mcp.mospi.gov.in/",
             observation_period=period,
+            dataset="iip_sectoral",
+            frequency="Monthly",
+            unit="%",
         )
         records.append(
             IIPSectoralRecord(
@@ -134,9 +146,12 @@ def parse_iip_use_based(payload: Any) -> list[IIPUseBasedRecord]:
         citation = make_citation(
             authority=_MOSPI_AUTHORITY,
             document_title="IIP Use-Based Classification (2011-12=100)",
-            table_reference="mospi_iip_use_based_2011_12",
-            retrieval_url="https://mospi.gov.in/iip",
+            table_reference="MoSPI eSankhyiki IIP Use-Based (Monthly, Base 2011-12)",
+            retrieval_url="https://mcp.mospi.gov.in/",
             observation_period=period,
+            dataset="iip_use_based",
+            frequency="Monthly",
+            unit="%",
         )
         records.append(
             IIPUseBasedRecord(
@@ -170,10 +185,13 @@ def parse_core_industries(payload: Any) -> list[CoreIndustriesRecord]:
         period = str(r.get("period") or r.get("month") or "2024-08")
         citation = make_citation(
             authority=_DPIIT_AUTHORITY,
-            document_title="Index of Eight Core Industries (ICI)",
-            table_reference="dpiit_eight_core_industries_2011_12",
-            retrieval_url="https://eaindustry.nic.in/ici",
+            document_title="Index Numbers of Core/Infrastructure Industries - Growth Rates",
+            table_reference="DBIE /tables/index-numbers-of-core-infrastructure-industries-growth-rates",
+            retrieval_url="https://dbie.rbihub.in/tables/index-numbers-of-core-infrastructure-industries-growth-rates",
             observation_period=period,
+            dataset="core_industries",
+            frequency="Annual / Financial Year",
+            unit="%",
         )
         records.append(
             CoreIndustriesRecord(
@@ -194,7 +212,6 @@ def parse_core_industries(payload: Any) -> list[CoreIndustriesRecord]:
 
 
 # ---------------------------------------------------------------------------
-# Step 4: Manufacturing GVA & OBICUS Parsers
 # ---------------------------------------------------------------------------
 
 def parse_manufacturing_gva(payload: Any) -> list[ManufacturingGVARecord]:
@@ -209,10 +226,13 @@ def parse_manufacturing_gva(payload: Any) -> list[ManufacturingGVARecord]:
         period = str(r.get("period") or "2024-Q1")
         citation = make_citation(
             authority=_RBI_AUTHORITY,
-            document_title="Quarterly Estimates of Gross Value Added (GVA)",
-            table_reference="real_sector.quarterly_gva_by_economic_activity",
-            retrieval_url="https://data-api.dbie.rbihub.in/api/tables/real_sector/quarterly_gva",
+            document_title="Quarterly Gross Value Added at Basic Price by Economic Activity",
+            table_reference="DBIE /tables/quarterly-gross-domestic-product-at-factor-cost-gross-value-added-at-basic-price",
+            retrieval_url="https://dbie.rbihub.in/tables/quarterly-gross-domestic-product-at-factor-cost-gross-value-added-at-basic-price",
             observation_period=period,
+            dataset="manufacturing_gva",
+            frequency="Quarterly",
+            unit="%",
         )
         records.append(
             ManufacturingGVARecord(
@@ -226,36 +246,6 @@ def parse_manufacturing_gva(payload: Any) -> list[ManufacturingGVARecord]:
     return records
 
 
-def parse_obicus_capacity(payload: Any) -> list[OBICUSRecord]:
-    rows = extract_rows(payload)
-    if not rows:
-        raise ValueError("Empty or invalid OBICUS payload.")
-
-    records: list[OBICUSRecord] = []
-    for r in rows:
-        if not isinstance(r, dict):
-            continue
-        period = str(r.get("period") or "2024-Q1")
-        citation = make_citation(
-            authority=_RBI_AUTHORITY,
-            document_title="Order Books, Inventories and Capacity Utilisation Survey (OBICUS)",
-            table_reference="real_sector.obicus_capacity_utilisation",
-            retrieval_url="https://dbie.rbihub.in/obicus",
-            observation_period=period,
-        )
-        records.append(
-            OBICUSRecord(
-                period=period,
-                capacity_utilisation_pct=safe_float_val(r.get("capacity_utilisation_pct") or r.get("cu_ratio")),
-                order_books_growth_yoy_pct=safe_float_val(r.get("order_books_growth_yoy_pct") or r.get("order_books_growth")),
-                inventory_to_sales_ratio_pct=safe_float_val(r.get("inventory_to_sales_ratio_pct") or r.get("inv_sales_ratio")),
-                citation=citation,
-            )
-        )
-    return records
-
-
-# ---------------------------------------------------------------------------
 # Step 6: Analytics Trend Direction Evaluator
 # ---------------------------------------------------------------------------
 
@@ -264,31 +254,20 @@ def evaluate_industrial_trends(
     capital_goods_yoy: float | None,
     steel_yoy: float | None,
     cement_yoy: float | None,
-    capacity_utilisation: float | None,
 ) -> dict[str, str]:
-    """Evaluates directional indicators: ↑ (Positive), ↓ (Negative), → (Flat)."""
+    """Evaluates directional indicators: Ã¢â€ â€˜ (Positive), Ã¢â€ â€œ (Negative), Ã¢â€ â€™ (Flat)."""
     def _arrow(val: float | None) -> str:
         if val is None:
             return "N/A"
         if val > 0:
-            return f"{val:+.1f}% ↑"
+            return f"{val:+.1f}% \u2191"
         if val < 0:
-            return f"{val:+.1f}% ↓"
-        return f"{val:+.1f}% →"
-
-    cu_str = "N/A"
-    if capacity_utilisation is not None:
-        if capacity_utilisation >= 75.0:
-            cu_str = f"{capacity_utilisation:.1f}% (Robust ↑)"
-        elif capacity_utilisation >= 72.0:
-            cu_str = f"{capacity_utilisation:.1f}% (Stable →)"
-        else:
-            cu_str = f"{capacity_utilisation:.1f}% (Subdued ↓)"
+            return f"{val:+.1f}% \u2193"
+        return f"{val:+.1f}% \u2192"
 
     return {
         "Manufacturing IIP": _arrow(manufacturing_yoy),
         "Capital Goods IIP": _arrow(capital_goods_yoy),
         "Core Steel": _arrow(steel_yoy),
         "Core Cement": _arrow(cement_yoy),
-        "Capacity Utilisation": cu_str,
     }

@@ -51,7 +51,7 @@ def decompose_node(state: OrchestratorState) -> Dict[str, Any]:
 
     if any(w in query for w in ["gdp", "growth", "iip", "output", "industry", "investment", "gfcf", "real"]):
         sectors.append(SectorEnum.REAL_ECONOMY.value)
-    if any(w in query for w in ["inflation", "cpi", "wpi", "prices", "crude", "oil", "food price"]):
+    if any(w in query for w in ["inflation", "cpi", "wpi", "crude", "oil", "food inflation"]):
         sectors.append(SectorEnum.PRICES_INFLATION.value)
     if any(w in query for w in ["repo", "rate", "rbi", "monetary", "credit", "banking", "liquidity"]):
         sectors.append(SectorEnum.MONETARY_BANKING.value)
@@ -59,9 +59,13 @@ def decompose_node(state: OrchestratorState) -> Dict[str, Any]:
         sectors.append(SectorEnum.FISCAL.value)
     if any(w in query for w in ["forex", "usd", "inr", "currency", "trade", "cad", "export", "import"]):
         sectors.append(SectorEnum.EXTERNAL.value)
-    if any(w in query for w in ["nifty", "sensex", "vix", "market", "equity", "earnings", "flows"]):
+    if any(w in query for w in ["nifty", "sensex", "vix", "equity", "earnings", "stock market", "fii", "dii"]):
         sectors.append(SectorEnum.CAPITAL_MARKETS.value)
-    if any(w in query for w in ["agriculture", "crop", "msp", "foodgrain", "rural"]):
+    if any(w in query for w in [
+        "agmarket", "agmarknet", "agricultur", "crop", "msp", "foodgrain", "rural", "mandi",
+        "rainfall", "monsoon", "onion", "wheat", "rice", "tomato", "potato", "fertilizer",
+        "irrigation", "vegetable", "sowing", "kharif", "rabi", "pulses", "gram", "mustard"
+    ]):
         sectors.append(SectorEnum.AGRICULTURE_RURAL.value)
     if any(w in query for w in ["labour", "employment", "unemployment", "epfo", "wage"]):
         sectors.append(SectorEnum.LABOUR_EMPLOYMENT.value)
@@ -97,7 +101,7 @@ def parallel_a2a_execute_node(state: OrchestratorState) -> Dict[str, Any]:
         SectorEnum.FISCAL.value: "Finance & Banking Sector Macroeconomic Agent",
         SectorEnum.EXTERNAL.value: "Finance & Banking Sector Macroeconomic Agent",
         SectorEnum.CAPITAL_MARKETS.value: "Capital Markets Macroeconomic Agent",
-        SectorEnum.AGRICULTURE_RURAL.value: "Real Sector Macroeconomic Agent",
+        SectorEnum.AGRICULTURE_RURAL.value: "Agriculture Agent",
         SectorEnum.LABOUR_EMPLOYMENT.value: "Real Sector Macroeconomic Agent",
     }
 
@@ -123,6 +127,21 @@ def parallel_a2a_execute_node(state: OrchestratorState) -> Dict[str, Any]:
                         "provenance_hash": art.metadata.get("sha256", "verified"),
                         "metrics": art.content
                     })
+                    if agent_name == "Agriculture Agent":
+                        for citation in art.content.get("citations", []):
+                            # Keep the complete source record; never substitute Current.
+                            if citation.get("value") is None:
+                                continue
+                            item = {
+                                **citation,
+                                "indicator_id": "in.macro.agri." + citation["mcp_tool"].removeprefix("get_"),
+                                "observation_period": citation["period"],
+                                "data_status": citation["freshness"],
+                                "provenance_hash": art.provenance_hash,
+                            }
+                            collected_obs.append(item)
+                            citations.append(item)
+                        continue
                     # Extract observations
                     for key, val in art.content.items():
                         if isinstance(val, dict) and "indicators" in val:

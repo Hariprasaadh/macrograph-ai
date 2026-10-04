@@ -3,13 +3,29 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+
+
 class PlatformSettings(BaseSettings):
+    AGRICULTURE_MCP_SOURCES: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    AGRICULTURE_OGD_RESOURCES: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    AGRICULTURE_MCP_TIMEOUT: float = Field(default=90, gt=0, le=180)
+    AGRICULTURE_USE_READYMADE_SOURCES: bool = True
+    AGRICULTURE_MOSPI_URL: str = "https://mcp.mospi.gov.in/"
+    AGRICULTURE_WEATHER_COMMAND: str = "node"
+    AGRICULTURE_WEATHER_SCRIPT: str = ".mcp-sources/Indian-Weather-MCP-Server/build/index.js"
+    DATA_GOV_IN_API_KEY: SecretStr = SecretStr("")
+    CEDA_API_KEY: SecretStr = SecretStr("")
+
     # Base paths
-    WORKSPACE_ROOT: Path = Path(__file__).resolve().parents[2]
-    BACKEND_ROOT: Path = Path(__file__).resolve().parents[1]
+    WORKSPACE_ROOT: Path = PROJECT_ROOT
+    BACKEND_ROOT: Path = BACKEND_ROOT
     DATA_DIR: Path = BACKEND_ROOT / "real_sector" / "data"
 
     # API & Port Settings
@@ -42,7 +58,10 @@ class PlatformSettings(BaseSettings):
     AGRICULTURE_SECTOR_URL: str = "http://127.0.0.1:8000/agriculture-sector"
     LABOUR_SECTOR_URL: str = "http://127.0.0.1:8000/labour-sector"
 
-    model_config = {"env_file": ".env", "extra": "ignore"}
+    model_config = {
+        "env_file": (PROJECT_ROOT / ".env", BACKEND_ROOT / ".env"),
+        "extra": "ignore",
+    }
 
 
 settings = PlatformSettings()

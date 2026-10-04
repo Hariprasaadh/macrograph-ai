@@ -14,6 +14,7 @@ import {
   Globe,
   Users,
   Activity,
+  Sprout,
   type LucideIcon,
 } from 'lucide-react';
 import { ChatMessage, StreamStep } from '../types';
@@ -83,6 +84,8 @@ const DEFAULT_MESSAGES: Record<string, ChatMessage[]> = {
 };
 
 const SECTOR_WORKSPACE_DESCRIPTIONS: Record<string, string> = {
+  agriculture_sector:
+    'Analyzes crops, mandi prices, MSP, rainfall, agricultural inputs and schemes using Agriculture MCP tools. Every observation identifies its actual source; unavailable data is reported explicitly.',
   external_sector:
     'Combines a configured RBI forex feed with locally stored trade and exchange-rate observations.',
   labour_sector:
@@ -92,7 +95,7 @@ const SECTOR_WORKSPACE_DESCRIPTIONS: Record<string, string> = {
   monetary_sector:
     'Combines official RBI DBIE data (policy rates, money supply, LAF liquidity) with real-time MPC intelligence via Tavily AI Search, synthesized by Groq LLM into cited monetary policy analysis.',
   real_sector:
-    'Fetches MoSPI IIP (sectoral & use-based), DPIIT Eight Core Industries index, and RBI DBIE manufacturing GVA & OBICUS capacity utilisation data with per-observation provenance.',
+    'Fetches MoSPI IIP (sectoral & use-based), DPIIT Eight Core Industries index, and RBI DBIE manufacturing GVA data with per-observation provenance.',
 };
 
 const SECTOR_WELCOME_MESSAGES: Record<string, string> = Object.fromEntries(
@@ -127,6 +130,7 @@ const NEW_SECTOR_DEFAULT_MESSAGES: Record<string, ChatMessage[]> = Object.fromEn
 );
 
 const AGENT_ICONS: Record<string, LucideIcon> = {
+  agriculture_sector: Sprout,
   orchestrator: Network,
   finance_sector: Landmark,
   external_sector: Globe,
@@ -137,6 +141,7 @@ const AGENT_ICONS: Record<string, LucideIcon> = {
 };
 
 const AGENT_SHORT_NAMES: Record<string, string> = {
+  agriculture_sector: 'Agriculture',
   orchestrator: 'Orchestrator',
   finance_sector: 'Finance Agent',
   external_sector: 'External',
@@ -181,6 +186,11 @@ const AgentToggleButton = memo(function AgentToggleButton({ label, selected, ton
 });
 
 const SUGGESTED_PROMPTS: Record<string, { text: string }[]> = {
+  agriculture_sector: [
+    { text: 'How has wheat production changed?' },
+    { text: 'Show historical rainfall in Mumbai for the last 7 days.' },
+    { text: 'What is the current MSP for wheat?' },
+  ],
   orchestrator: [
     {
       text: 'Synthesize the transmission of policy rates into bank lending rates, credit growth, and economic output.',
@@ -234,7 +244,6 @@ const SUGGESTED_PROMPTS: Record<string, { text: string }[]> = {
     { text: 'What is the latest IIP growth rate for Manufacturing, Mining, and Electricity in India?' },
     { text: 'Summarize the Eight Core Industries (ICI) index — steel, cement, and coal YoY growth.' },
     { text: 'What are the latest use-based IIP figures for Capital Goods and Consumer Durables?' },
-    { text: 'What is the current OBICUS capacity utilisation for the manufacturing sector?' },
   ],
 };
 
@@ -740,6 +749,16 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                         key={idx}
                         className="p-2.5 rounded-lg bg-slate-900/60 border border-white/5 text-[11px] font-mono"
                       >
+                        {isNewSector && cite.citation_id && (
+                          <div className="text-emerald-300 font-semibold mb-1">
+                            [{cite.citation_id}] {cite.indicator || 'Observation'}
+                          </div>
+                        )}
+                        {isNewSector && cite.value !== undefined && (
+                          <div className="text-white text-sm font-semibold mb-1">
+                            {cite.value} {cite.unit || ''}
+                          </div>
+                        )}
                         {(!isNewSector ||
                           cite.authority ||
                           cite.source_authority ||
@@ -764,6 +783,11 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                           <div className="text-slate-400 text-[10px] truncate mt-0.5">
                             Frequency: {cite.frequency}
                             {cite.unit ? ` • Unit: ${cite.unit}` : ''}
+                          </div>
+                        )}
+                        {isNewSector && cite.mcp_tool && (
+                          <div className="text-slate-400 text-[10px] mt-0.5">
+                            Path: Agriculture Agent → {cite.mcp_tool} → {cite.upstream_tool || 'source'}
                           </div>
                         )}
                         {isNewSector && cite.as_of && (
@@ -797,6 +821,11 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                             {cite.source_note}
                           </div>
                         )}
+                        {isNewSector && cite.provenance_hash && (
+                          <div className="text-slate-500 text-[10px] mt-1">
+                            Provenance: {cite.provenance_hash}
+                          </div>
+                        )}
                         {(!isNewSector || cite.period || cite.observation_period || cite.freshness) && (
                           <div className="flex items-center justify-between text-slate-400 text-[10px] mt-1">
                             {(!isNewSector || cite.period || cite.observation_period) && (
@@ -810,7 +839,10 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                                   isNewSector ? '' : 'text-emerald-400'
                                 }`}
                               >
-                                {cite.freshness || (isNewSector ? '' : 'Verified')}
+                                {(cite.freshness || (isNewSector ? '' : 'Verified')).replace(
+                                  /_/g,
+                                  ' ',
+                                )}
                               </span>
                             )}
                           </div>

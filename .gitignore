@@ -1,5 +1,6 @@
 # Dependencies
 frontend/node_modules/
+.mcp-sources/
 .venv/
 env/
 venv/
@@ -55,6 +56,9 @@ Thumbs.db
 *.egg-info/
 .eggs/
 develop-eggs/
+<<<<<<< HEAD
 
 node_modules/
 package-lock.json/
+=======
+>>>>>>> 1ae2b63 (Real and Agri implemented)

@@ -15,7 +15,6 @@ from real_sector.models import (
     IIPUseBasedResponse,
     ManufacturingGVAResponse,
     MarketContextResponse,
-    OBICUSResponse,
     RealSectorJoinedResponse,
 )
 import logging
@@ -36,7 +35,6 @@ async def _lifespan(application: FastAPI):
 
 app = FastAPI(
     title="Real Sector & Industrial Output API",
-    description="HTTP endpoints for MoSPI IIP, Core Industries (ICI), GVA, and OBICUS data.",
     version="1.0.0",
     lifespan=_lifespan,
 )
@@ -60,7 +58,7 @@ async def metadata() -> dict[str, Any]:
         "owns": [
             "iip_general", "iip_manufacturing", "iip_mining", "iip_electricity",
             "iip_capital_goods", "iip_consumer_durables", "core_steel", "core_cement",
-            "manufacturing_gva", "capacity_utilisation",
+            "manufacturing_gva",
         ],
     }
 
@@ -101,16 +99,6 @@ async def manufacturing_gva(lookback_quarters: int = Query(default=8, ge=1, le=3
         records = await client.fetch_manufacturing_gva(lookback_quarters)
         freshness = records[0].citation.freshness if records else DataFreshness.UNAVAILABLE
         return ManufacturingGVAResponse(status=freshness, total_records=len(records), records=records)
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
-
-
-@app.get("/obicus", response_model=OBICUSResponse, tags=["Real Sector"])
-async def obicus(lookback_quarters: int = Query(default=8, ge=1, le=32)) -> OBICUSResponse:
-    try:
-        records = await client.fetch_obicus_capacity(lookback_quarters)
-        freshness = records[0].citation.freshness if records else DataFreshness.UNAVAILABLE
-        return OBICUSResponse(status=freshness, total_records=len(records), records=records)
     except Exception as exc:
         raise HTTPException(status_code=503, detail=str(exc))
 

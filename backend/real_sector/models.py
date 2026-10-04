@@ -4,7 +4,7 @@ Every macroeconomic observation MUST include a Citation object.
 Rules:
 - No default values for citation fields.
 - Percentages are plain floats (e.g. 4.5 means 4.5%).
-- Monetary values are in ₹ Crore where applicable.
+- Monetary values are in â‚¹ Crore where applicable.
 """
 from __future__ import annotations
 
@@ -57,10 +57,16 @@ class Citation(BaseModel):
         default=DataFreshness.LIVE,
         description="Data freshness status.",
     )
+    dataset: str | None = Field(default=None, description="Dataset/section identifier.")
+    authority: str | None = Field(default=None, description="Alias for source_authority.")
+    frequency: str | None = Field(default=None, description="Observation frequency.")
+    unit: str | None = Field(default=None, description="Unit of measurement.")
+    source_note: str | None = Field(default=None, description="Additional context or notes.")
+    as_of: str | None = Field(default=None, description="As of date.")
 
 
 # ---------------------------------------------------------------------------
-# Step 1 — MoSPI IIP Sectoral Breakdown
+# Step 1 â€” MoSPI IIP Sectoral Breakdown
 # ---------------------------------------------------------------------------
 
 class IIPSectoralRecord(BaseModel):
@@ -92,7 +98,7 @@ class IIPSectoralResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Step 2 — MoSPI IIP Use-Based Classification
+# Step 2 â€” MoSPI IIP Use-Based Classification
 # ---------------------------------------------------------------------------
 
 class IIPUseBasedRecord(BaseModel):
@@ -116,7 +122,7 @@ class IIPUseBasedResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Step 3 — DPIIT Index of Eight Core Industries (ICI)
+# Step 3 â€” DPIIT Index of Eight Core Industries (ICI)
 # ---------------------------------------------------------------------------
 
 class CoreIndustriesRecord(BaseModel):
@@ -143,7 +149,6 @@ class CoreIndustriesResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Step 4 — RBI DBIE Manufacturing GVA & OBICUS Capacity Utilization
 # ---------------------------------------------------------------------------
 
 class ManufacturingGVARecord(BaseModel):
@@ -151,7 +156,7 @@ class ManufacturingGVARecord(BaseModel):
 
     period: str = Field(..., description="Quarterly / annual period label (e.g. '2024-Q1', '2024-Q2').")
     manufacturing_gva_real_yoy_pct: float | None = Field(None, description="Real Manufacturing GVA growth YoY (%).")
-    manufacturing_gva_cr: float | None = Field(None, description="Nominal Manufacturing GVA (₹ Crore).")
+    manufacturing_gva_cr: float | None = Field(None, description="Nominal Manufacturing GVA (â‚¹ Crore).")
     manufacturing_share_in_gva_pct: float | None = Field(None, description="Manufacturing share in total GVA (%).")
     citation: Citation
 
@@ -163,29 +168,13 @@ class ManufacturingGVAResponse(BaseModel):
     error_message: str | None = None
 
 
-class OBICUSRecord(BaseModel):
-    """RBI Order Books, Inventories and Capacity Utilisation Survey (OBICUS)."""
-
-    period: str = Field(..., description="Quarterly period label (e.g. '2024-Q1', '2024-Q2').")
-    capacity_utilisation_pct: float | None = Field(None, description="Manufacturing Capacity Utilisation Ratio (%).")
-    order_books_growth_yoy_pct: float | None = Field(None, description="New orders growth YoY (%).")
-    inventory_to_sales_ratio_pct: float | None = Field(None, description="Finished goods inventory-to-sales ratio (%).")
-    citation: Citation
-
-
-class OBICUSResponse(BaseModel):
-    status: DataFreshness
-    records: list[OBICUSRecord]
-    total_records: int = Field(default=0)
-    error_message: str | None = None
 
 
 # ---------------------------------------------------------------------------
-# Step 5 — Joined Real Sector Observation (DuckDB JOIN)
+# Step 5 â€” Joined Real Sector Observation (DuckDB JOIN)
 # ---------------------------------------------------------------------------
 
 class RealSectorJoinedRecord(BaseModel):
-    """Joined macroeconomic snapshot connecting IIP, Core Industries, GVA, and OBICUS by date."""
 
     period: str = Field(..., description="Observation period (YYYY-MM or YYYY-QN).")
     manufacturing_iip_yoy_pct: float | None = None
@@ -198,7 +187,6 @@ class RealSectorJoinedRecord(BaseModel):
     core_coal_yoy_pct: float | None = None
     overall_ici_yoy_pct: float | None = None
     manufacturing_gva_yoy_pct: float | None = None
-    capacity_utilisation_pct: float | None = None
     trend_summary: str | None = None
     citation: Citation
 
@@ -211,7 +199,7 @@ class RealSectorJoinedResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Step 7 — Market Context: Infrastructure & Industrial Listed Companies
+# Step 7 â€” Market Context: Infrastructure & Industrial Listed Companies
 # ---------------------------------------------------------------------------
 
 class CompanyMarketRecord(BaseModel):

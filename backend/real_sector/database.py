@@ -2,7 +2,6 @@
 
 Owns the sector-dedicated DuckDB file (`real_sector.duckdb`).
 Includes DDL, thread-safe connection pooling, baseline seeding, and JOIN operations
-across IIP, Eight Core Industries, Manufacturing GVA, and OBICUS.
 """
 from __future__ import annotations
 
@@ -28,7 +27,6 @@ _ALLOWED_TABLES: frozenset[str] = frozenset({
     "iip_use_based",
     "core_industries",
     "manufacturing_gva",
-    "obicus_capacity",
     "market_context",
     "fetch_log",
 })
@@ -44,7 +42,6 @@ _DDL_STATEMENTS: list[str] = [
     "CREATE SEQUENCE IF NOT EXISTS seq_iip_use_id START 1",
     "CREATE SEQUENCE IF NOT EXISTS seq_ici_id START 1",
     "CREATE SEQUENCE IF NOT EXISTS seq_gva_id START 1",
-    "CREATE SEQUENCE IF NOT EXISTS seq_obicus_id START 1",
     "CREATE SEQUENCE IF NOT EXISTS seq_market_id START 1",
     "CREATE SEQUENCE IF NOT EXISTS seq_real_fetchlog_id START 1",
 
@@ -114,18 +111,6 @@ _DDL_STATEMENTS: list[str] = [
     )
     """,
 
-    # Table 5: RBI DBIE OBICUS Capacity Utilization
-    """
-    CREATE TABLE IF NOT EXISTS obicus_capacity (
-        id                           BIGINT DEFAULT nextval('seq_obicus_id') PRIMARY KEY,
-        period                       VARCHAR NOT NULL UNIQUE,
-        capacity_utilisation_pct     DOUBLE,
-        order_books_growth_yoy_pct   DOUBLE,
-        inventory_to_sales_ratio_pct DOUBLE,
-        citation                     VARCHAR NOT NULL,
-        fetched_at                   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-    )
-    """,
 
     # Table 6: Market Context (Listed Bellwethers)
     """
@@ -166,164 +151,19 @@ def get_connection() -> Generator[duckdb.DuckDBPyConnection, None, None]:
             con.close()
 
 
-def initialise_schema(seed_baseline: bool = True) -> None:
-    """Create all tables and indices if they do not yet exist, and seed baseline."""
+def initialise_schema(seed_baseline: bool = False) -> None:
+    """Create all tables and indices if they do not yet exist."""
     _ensure_data_dir()
     with get_connection() as con:
         for stmt in _DDL_STATEMENTS:
             con.execute(stmt.strip())
     logger.info("Real sector DuckDB schema initialised at %s", _DB_PATH)
-    if seed_baseline:
-        seed_canonical_baseline()
 
 
 def seed_canonical_baseline() -> None:
-    """Populate baseline official MoSPI, DPIIT, and RBI records if tables are empty."""
-    # 1. IIP Sectoral
-    iip_rows = query_latest_rows("iip_sectoral", limit=1)
-    if not iip_rows:
-        upsert_rows("iip_sectoral", [{
-            "period": "2024-08",
-            "general_iip": 145.2,
-            "general_iip_yoy_pct": -0.1,
-            "mining_iip": 109.8,
-            "mining_yoy_pct": -4.3,
-            "manufacturing_iip": 145.8,
-            "manufacturing_yoy_pct": 1.0,
-            "electricity_iip": 208.5,
-            "electricity_yoy_pct": -3.7,
-            "citation": json.dumps({
-                "source_agent": "real_sector",
-                "source_authority": "Ministry of Statistics and Programme Implementation (MoSPI)",
-                "document_title": "Quick Estimates of Index of Industrial Production (IIP)",
-                "table_reference": "mospi_iip_sectoral_2011_12",
-                "retrieval_url": "https://mospi.gov.in/iip",
-                "observation_period": "2024-08",
-                "fetched_at": datetime.now(timezone.utc).isoformat(),
-                "freshness": "cached",
-            }),
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
-        }])
+    """No-op: All data must be fetched dynamically from official MCP servers."""
+    pass
 
-    # 2. IIP Use-Based
-    use_rows = query_latest_rows("iip_use_based", limit=1)
-    if not use_rows:
-        upsert_rows("iip_use_based", [{
-            "period": "2024-08",
-            "primary_goods_yoy_pct": -2.6,
-            "capital_goods_yoy_pct": 0.7,
-            "intermediate_goods_yoy_pct": 3.0,
-            "infrastructure_goods_yoy_pct": 1.9,
-            "consumer_durables_yoy_pct": 5.2,
-            "consumer_non_durables_yoy_pct": -4.5,
-            "citation": json.dumps({
-                "source_agent": "real_sector",
-                "source_authority": "Ministry of Statistics and Programme Implementation (MoSPI)",
-                "document_title": "IIP Use-Based Classification",
-                "table_reference": "mospi_iip_use_based_2011_12",
-                "retrieval_url": "https://mospi.gov.in/iip",
-                "observation_period": "2024-08",
-                "fetched_at": datetime.now(timezone.utc).isoformat(),
-                "freshness": "cached",
-            }),
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
-        }])
-
-    # 3. Eight Core Industries
-    ici_rows = query_latest_rows("core_industries", limit=1)
-    if not ici_rows:
-        upsert_rows("core_industries", [{
-            "period": "2024-08",
-            "overall_ici_yoy_pct": -1.8,
-            "coal_yoy_pct": -8.1,
-            "crude_oil_yoy_pct": -5.0,
-            "natural_gas_yoy_pct": -3.6,
-            "refinery_products_yoy_pct": -1.0,
-            "fertilizers_yoy_pct": 3.2,
-            "steel_yoy_pct": 4.5,
-            "cement_yoy_pct": 3.0,
-            "electricity_yoy_pct": -5.0,
-            "citation": json.dumps({
-                "source_agent": "real_sector",
-                "source_authority": "DPIIT / Office of Economic Adviser",
-                "document_title": "Index of Eight Core Industries (ICI)",
-                "table_reference": "dpiit_eight_core_industries_2011_12",
-                "retrieval_url": "https://eaindustry.nic.in/ici",
-                "observation_period": "2024-08",
-                "fetched_at": datetime.now(timezone.utc).isoformat(),
-                "freshness": "cached",
-            }),
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
-        }])
-
-    # 4. Manufacturing GVA
-    gva_rows = query_latest_rows("manufacturing_gva", limit=1)
-    if not gva_rows:
-        upsert_rows("manufacturing_gva", [{
-            "period": "2024-Q1",
-            "manufacturing_gva_real_yoy_pct": 7.0,
-            "manufacturing_gva_cr": 724500.0,
-            "manufacturing_share_in_gva_pct": 16.2,
-            "citation": json.dumps({
-                "source_agent": "real_sector",
-                "source_authority": "National Statistical Office (NSO) / RBI DBIE",
-                "document_title": "Quarterly Estimates of Gross Value Added (GVA)",
-                "table_reference": "real_sector.quarterly_gva_by_economic_activity",
-                "retrieval_url": "https://data-api.dbie.rbihub.in/api/tables/real_sector/quarterly_gva",
-                "observation_period": "2024-Q1",
-                "fetched_at": datetime.now(timezone.utc).isoformat(),
-                "freshness": "cached",
-            }),
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
-        }])
-
-    # 5. OBICUS Capacity Utilization
-    obicus_rows = query_latest_rows("obicus_capacity", limit=1)
-    if not obicus_rows:
-        upsert_rows("obicus_capacity", [{
-            "period": "2024-Q1",
-            "capacity_utilisation_pct": 74.0,
-            "order_books_growth_yoy_pct": 6.8,
-            "inventory_to_sales_ratio_pct": 48.2,
-            "citation": json.dumps({
-                "source_agent": "real_sector",
-                "source_authority": "Reserve Bank of India (RBI)",
-                "document_title": "Order Books, Inventories and Capacity Utilisation Survey (OBICUS)",
-                "table_reference": "real_sector.obicus_capacity_utilisation_round_65",
-                "retrieval_url": "https://dbie.rbihub.in/obicus",
-                "observation_period": "2024-Q1",
-                "fetched_at": datetime.now(timezone.utc).isoformat(),
-                "freshness": "cached",
-            }),
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
-        }])
-
-    # 6. Market Context Bellwethers
-    market_rows = query_latest_rows("market_context", limit=1)
-    if not market_rows:
-        upsert_rows("market_context", [{
-            "period": "2024-09-30",
-            "nifty_infra_change_pct": 1.2,
-            "nifty_metal_change_pct": -0.8,
-            "bellwethers_json": json.dumps([
-                {"symbol": "TATASTEEL.NS", "company_name": "Tata Steel Ltd", "sector_category": "Steel", "current_price": 164.5, "change_pct_1m": -1.2, "change_pct_1y": 28.4, "pe_ratio": 42.1},
-                {"symbol": "JSWSTEEL.NS", "company_name": "JSW Steel Ltd", "sector_category": "Steel", "current_price": 985.0, "change_pct_1m": 0.5, "change_pct_1y": 24.1, "pe_ratio": 29.8},
-                {"symbol": "ULTRACEMCO.NS", "company_name": "UltraTech Cement Ltd", "sector_category": "Cement", "current_price": 11200.0, "change_pct_1m": 2.1, "change_pct_1y": 35.6, "pe_ratio": 46.2},
-                {"symbol": "LT.NS", "company_name": "Larsen & Toubro Ltd", "sector_category": "Capital Goods & Infra", "current_price": 3650.0, "change_pct_1m": 1.8, "change_pct_1y": 26.5, "pe_ratio": 36.4},
-                {"symbol": "BHEL.NS", "company_name": "Bharat Heavy Electricals Ltd", "sector_category": "Capital Goods", "current_price": 275.0, "change_pct_1m": -3.2, "change_pct_1y": 110.2, "pe_ratio": 85.0},
-            ]),
-            "citation": json.dumps({
-                "source_agent": "real_sector",
-                "source_authority": "National Stock Exchange of India (NSE) / Yahoo Finance",
-                "document_title": "Industrial & Infrastructure Market Bellwethers",
-                "table_reference": "nse_infrastructure_metal_capital_goods_basket",
-                "retrieval_url": "https://www.nseindia.com",
-                "observation_period": "2024-09-30",
-                "fetched_at": datetime.now(timezone.utc).isoformat(),
-                "freshness": "upstream_snapshot",
-            }),
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
-        }])
 
 
 def upsert_rows(table: str, rows: list[dict[str, Any]]) -> int:
@@ -427,7 +267,6 @@ def query_joined_real_indicators() -> list[dict[str, Any]]:
             c.coal_yoy_pct AS core_coal_yoy_pct,
             c.overall_ici_yoy_pct AS overall_ici_yoy_pct,
             g.manufacturing_gva_real_yoy_pct AS manufacturing_gva_yoy_pct,
-            o.capacity_utilisation_pct AS capacity_utilisation_pct,
             COALESCE(s.citation, c.citation) AS citation
         FROM iip_sectoral s
         FULL OUTER JOIN iip_use_based u ON s.period = u.period
@@ -435,9 +274,6 @@ def query_joined_real_indicators() -> list[dict[str, Any]]:
         LEFT JOIN (
             SELECT * FROM manufacturing_gva ORDER BY fetched_at DESC LIMIT 1
         ) g ON 1=1
-        LEFT JOIN (
-            SELECT * FROM obicus_capacity ORDER BY fetched_at DESC LIMIT 1
-        ) o ON 1=1
         ORDER BY period DESC
         LIMIT 12
         """

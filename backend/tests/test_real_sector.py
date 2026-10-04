@@ -13,7 +13,6 @@ from real_sector.mcp_server import (
     get_infrastructure_market_context,
     get_joined_real_sector_indicators,
     get_manufacturing_gva,
-    get_obicus_capacity,
 )
 from real_sector.models import DataFreshness
 from real_sector.parsers import evaluate_industrial_trends
@@ -57,13 +56,11 @@ def test_trend_evaluator():
         capital_goods_yoy=0.5,
         steel_yoy=4.2,
         cement_yoy=3.1,
-        capacity_utilisation=74.5,
     )
-    assert "↓" in trends["Manufacturing IIP"]
-    assert "↑" in trends["Capital Goods IIP"]
-    assert "↑" in trends["Core Steel"]
-    assert "↑" in trends["Core Cement"]
-    assert "Stable" in trends["Capacity Utilisation"]
+    assert "\u2193" in trends["Manufacturing IIP"]
+    assert "\u2191" in trends["Capital Goods IIP"]
+    assert "\u2191" in trends["Core Steel"]
+    assert "\u2191" in trends["Core Cement"]
 
 
 def test_mcp_tools():
@@ -76,9 +73,6 @@ def test_mcp_tools():
 
     res_gva = asyncio.run(get_manufacturing_gva(lookback_quarters=2))
     assert len(res_gva.records) > 0
-
-    res_cu = asyncio.run(get_obicus_capacity(lookback_quarters=2))
-    assert len(res_cu.records) > 0
 
     res_joined = asyncio.run(get_joined_real_sector_indicators())
     assert len(res_joined.records) > 0

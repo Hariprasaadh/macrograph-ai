@@ -1,6 +1,6 @@
 """Real Sector LangGraph Agent Node & LLM Reasoning.
 
-Synthesizes MoSPI IIP, DPIIT Core Industries, RBI DBIE GVA/OBICUS,
+Synthesizes MoSPI IIP, DPIIT Core Industries, and RBI DBIE GVA,
 and listed industrial equity context into structured macroeconomic diagnostics.
 """
 from __future__ import annotations
@@ -28,7 +28,6 @@ You ONLY answer queries concerning India's Real Sector, Industrial Output, and C
   - MoSPI Use-Based IIP: Primary goods, Capital goods, Intermediate goods, Infrastructure goods, Consumer durables, Consumer non-durables.
   - DPIIT Eight Core Industries (ICI): Coal, Crude Oil, Natural Gas, Refinery Products, Fertilizers, Steel, Cement, Electricity.
   - RBI DBIE & NSO: Quarterly Manufacturing GVA growth & GVA share.
-  - RBI OBICUS: Manufacturing Capacity Utilisation Ratio (%), Order books, and inventory-to-sales ratios.
   - Industrial & Infrastructure market context: Steel, Cement, Capital Goods listed companies and NIFTY Infra/Metal trends.
 
 RESPONSE SYNTHESIS CONTRACT:
@@ -43,7 +42,6 @@ Structure your response clearly and concisely following this exact pattern:
    • Core-sector steel: [Value]% YoY ([↑/↓/→], Period: [Period])
    • Cement: [Value]% YoY ([↑/↓/→], Period: [Period])
    • Manufacturing GVA: [Value]% YoY (Period: [Period])
-   • Capacity utilisation (OBICUS): [Value]% (Period: [Period])
 
 3. Market Context (Equity / Sectoral Impact):
    • Relevant listed companies (e.g. Steel: Tata Steel/JSW Steel, Cement: UltraTech, Capital Goods: L&T/BHEL).
@@ -62,17 +60,55 @@ _SERVICE_KEYWORDS = {
     "iip_use_based": ("use-based", "capital goods", "intermediate goods", "consumer durables", "primary goods", "durables"),
     "core_industries": ("core sector", "core industries", "eight core", "steel", "cement", "coal", "refinery", "ici"),
     "manufacturing_gva": ("gva", "manufacturing gva", "gross value added", "real gva", "manufacturing output"),
-    "obicus_capacity": ("obicus", "capacity utilisation", "capacity utilization", "order books", "utilization rate"),
     "market_context": ("listed companies", "stocks", "tata steel", "jsw steel", "ultratech", "l&t", "bhel", "market context", "nifty infra"),
     "joined_diagnostic": ("diagnostic", "comprehensive", "real sector", "overview", "industrial momentum", "industrial weakness"),
 }
 
+
+# Source selection is deterministic and MCP-only; the LLM is used only for
+# interpreting observations returned by these approved fetchers.
+SECTOR_SOURCE_ROUTING: dict[str, list[str]] = {
+    "iip": ["mospi"],
+    "industrial_production": ["mospi"],
+    "manufacturing_output": ["mospi"],
+    "gva": ["mospi", "dbie"],
+    "gdp": ["mospi", "dbie"],
+    "core_industries": ["dbie"],
+    "infrastructure": ["dbie"],
+    "listed_company": ["yahoo_finance"],
+    "stock_price": ["yahoo_finance"],
+    "company_financials": ["yahoo_finance"],
+}
+
+_DETERMINISTIC_SERVICE_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("listed compan", "company performance", "stock", "share price", "market context", "nifty infra"), "market_context"),
+    (("core sector", "core industries", "eight core", "steel", "cement", "coal", "refinery"), "core_industries"),
+    (("gva", "gross value added"), "manufacturing_gva"),
+    (("capital goods", "use-based", "consumer durable", "intermediate goods"), "iip_use_based"),
+    (("iip", "industrial production", "manufacturing", "mining", "electricity"), "iip_sectoral"),
+)
+
+
+def _select_services_deterministically(query: str) -> set[str]:
+    """Map query intent to the fixed MCP-backed fetcher allowlist."""
+    lowered = query.lower()
+    selected = {
+        service
+        for keywords, service in _DETERMINISTIC_SERVICE_RULES
+        if any(keyword in lowered for keyword in keywords)
+    }
+    if "market_context" in selected and any(term in lowered for term in ("company", "companies", "manufacturing", "industrial")):
+        selected.update({"iip_sectoral", "core_industries", "manufacturing_gva"})
+    if not selected or any(term in lowered for term in ("overview", "diagnostic", "real sector", "comprehensive")):
+        selected.update({"iip_sectoral", "iip_use_based", "core_industries", "manufacturing_gva", "market_context"})
+    return selected
+
 _FETCHERS = {
+
     "iip_sectoral": lambda: client.fetch_iip_sectoral(),
     "iip_use_based": lambda: client.fetch_iip_use_based(),
     "core_industries": lambda: client.fetch_core_industries(),
     "manufacturing_gva": lambda: client.fetch_manufacturing_gva(),
-    "obicus_capacity": lambda: client.fetch_obicus_capacity(),
     "market_context": lambda: client.fetch_infrastructure_market_context(),
     "joined_diagnostic": lambda: client.fetch_joined_real_indicators(),
 }
@@ -86,16 +122,12 @@ async def real_agent_node(state: dict[str, Any]) -> dict[str, Any]:
         selected = set(preselected) & set(_FETCHERS)
         selection_error = state.get("_selection_error")
     else:
-        selected, selection_error = await select_relevant_services_with_llm(
-            query=query,
-            service_keywords=_SERVICE_KEYWORDS,
-            api_key=real_settings.REAL_LLM_KEY,
-            model=real_settings.REAL_LLM_MODEL,
-        )
+        selected = _select_services_deterministically(query)
+        selection_error = None
 
     # If general or empty selection, default to core pillars
     if not selected:
-        selected = {"iip_sectoral", "iip_use_based", "core_industries", "manufacturing_gva", "obicus_capacity", "market_context"}
+        selected = {"iip_sectoral", "iip_use_based", "core_industries", "manufacturing_gva", "market_context"}
 
     names = list(_FETCHERS)
     results = await asyncio.gather(
@@ -118,11 +150,13 @@ async def real_agent_node(state: dict[str, Any]) -> dict[str, Any]:
             continue
         records = [record_to_dict(item) for item in result]
         if not records:
-            data_context[name] = {"period": None}
+            reason = "unavailable through configured MCP sources"
+            errors.append(f"{name}: {reason}")
+            data_context[name] = {"period": None, "status": "unavailable", "reason": reason}
             evidence_context[name] = data_context[name]
             freshness[name] = "unavailable"
             continue
-        latest = records[0]
+        latest = records[-1]
         data_context[name] = {
             k: v for k, v in latest.items() if k not in {"id", "citation"}
         }
@@ -131,25 +165,35 @@ async def real_agent_node(state: dict[str, Any]) -> dict[str, Any]:
         }
         citation = latest.get("citation")
         if isinstance(citation, dict):
-            citations.append({"dataset": name, **citation})
-            freshness[name] = str(citation.get("freshness", "unavailable"))
+            cite_dict = dict(citation)
+            cite_dict.setdefault("dataset", name)
+            citations.append(cite_dict)
+            freshness[name] = str(cite_dict.get("freshness", "live"))
         else:
             freshness[name] = "unavailable"
 
     analysis = ""
-    try:
-        analysis = await reason_over_sector_data(
-            query=query,
-            sector_name="Real Sector & Industrial Output",
-            system_prompt=_SYSTEM_PROMPT,
-            data_context=evidence_context,
-            api_key=real_settings.AGR_REAL_KEY or real_settings.REAL_LLM_KEY,
-            model=real_settings.REAL_LLM_MODEL,
-            temperature=real_settings.REAL_LLM_TEMPERATURE,
+    if citations:
+        try:
+            analysis = await reason_over_sector_data(
+                query=query,
+                sector_name="Real Sector & Industrial Output",
+                system_prompt=_SYSTEM_PROMPT,
+                data_context=evidence_context,
+                api_key=real_settings.AGR_REAL_KEY or real_settings.REAL_LLM_KEY,
+                model=real_settings.REAL_LLM_MODEL,
+                temperature=real_settings.REAL_LLM_TEMPERATURE,
+            )
+        except Exception as exc:
+            logger.exception("Real Sector LLM reasoning failed")
+            errors.append(f"LLM reasoning unavailable: {exc}")
+    else:
+        unavailable = ", ".join(sorted(selected))
+        analysis = (
+            "### Data unavailable through configured MCP sources\n\n"
+            f"No live observations were returned for: {unavailable}. "
+            "This response intentionally does not infer values or provide market conclusions."
         )
-    except Exception as exc:
-        logger.exception("Real Sector LLM reasoning failed")
-        errors.append(f"LLM reasoning unavailable: {exc}")
 
     return {
         "real_sector_analysis": analysis,

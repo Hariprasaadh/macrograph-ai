@@ -27,11 +27,17 @@ dependencies = [
     "sse-starlette>=2.1.0",
     "python-dotenv>=1.0.0",
     "tenacity>=9.0.0",
+    "jsonschema>=4.23.0",
     "httpx>=0.28.0",
     "pydantic-settings>=2.6.0",
     "groq>=0.37.0",
     "pytest>=8.0.0",
     "pytest-asyncio>=1.4.0",
+]
+
+[project.optional-dependencies]
+agriculture = [
+    "agmarknet-mcp @ git+https://github.com/Krishna-Baldwa/agmarket-mcp.git@ad4e9b5c38f0fb45565c6ccf4c3ad706371fd891",
 ]
 
 [build-system]
@@ -49,6 +55,6 @@ include = ["core*", "*_sector*"]
 namespaces = true
 
 [tool.pytest.ini_options]
-testpaths = ["backend/tests", "backend/finance_sector/tests"]
+testpaths = ["backend/tests", "backend/finance_sector/tests", "backend/agriculture_sector/test_agriculture.py"]
 pythonpath = ["backend"]
 asyncio_mode = "auto"

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import math
+from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,11 +29,24 @@ from external_sector.mcp_server import mcp_server as external_mcp
 from capital_market_sector.mcp_server import mcp_server as capital_market_mcp
 from labour_sector.mcp_server import mcp_server as labour_mcp
 from monetary_sector.mcp_server import mcp_server as monetary_mcp
+from agriculture_sector.api.app import mcp_http_app as agriculture_mcp_http
+from agriculture_sector.agent import (
+    agriculture_agent_node, select_agriculture_tools,
+    _SERVICE_KEYWORDS as _AGRICULTURE_SERVICE_KEYWORDS,
+)
+
+
+@asynccontextmanager
+async def gateway_lifespan(application: FastAPI):
+    # Mounted sub-app lifespans are not run by FastAPI automatically.
+    async with agriculture_mcp_http.lifespan(agriculture_mcp_http):
+        yield
 
 app = FastAPI(
     title="Macrograph AI — Indian Macroeconomic Intelligence Platform",
     description="Multi-Agent Macroeconomic Research, Knowledge Graph, Causal Simulation, and A2A Protocol Gateway.",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=gateway_lifespan,
 )
 
 app.add_middleware(
@@ -234,6 +248,7 @@ from monetary_sector.agent import (
 from monetary_sector.config import monetary_settings
 from real_sector.agent import (
     _SERVICE_KEYWORDS as _REAL_SERVICE_KEYWORDS,
+    _select_services_deterministically,
     real_agent_node,
 )
 from real_sector.config import real_settings
@@ -245,13 +260,25 @@ class ChatMessageRequest(BaseModel):
         default="orchestrator",
         description=(
             "'orchestrator', 'finance_sector', 'external_sector', 'labour_sector', "
-            "'capital_market_sector', 'monetary_sector', or 'real_sector'"
+            "'capital_market_sector', 'monetary_sector', 'agriculture_sector', or 'real_sector'"
         ),
     )
     scenario_shock: Optional[Dict[str, Any]] = None
+    parameters: Dict[str, Any] = Field(default_factory=dict, description="Optional sector query scope, e.g. city, crop, state")
 
 
 _DIRECT_SECTOR_CHAT: dict[str, dict[str, Any]] = {
+    "agriculture_sector": {
+        "node": agriculture_agent_node,
+        "service_keywords": _AGRICULTURE_SERVICE_KEYWORDS,
+        "name": "Agriculture",
+        "data_key": "agriculture_sector_data",
+        "analysis_key": "agriculture_sector_analysis",
+        "citations_key": "agriculture_sector_citations",
+        "errors_key": "agriculture_sector_errors",
+        "freshness_key": "agriculture_sector_freshness",
+        "sections": [],
+    },
     "external_sector": {
         "node": external_agent_node,
         "service_keywords": _EXTERNAL_SERVICE_KEYWORDS,
@@ -465,9 +492,6 @@ _DIRECT_SECTOR_CHAT: dict[str, dict[str, Any]] = {
                 ("Real GVA YoY", "manufacturing_gva_real_yoy_pct", "%"),
                 ("Nominal GVA (₹ Cr)", "manufacturing_gva_cr", " Cr"),
             ]),
-            ("obicus_capacity", "Capacity Utilisation (OBICUS)", [
-                ("Capacity Utilisation Ratio", "capacity_utilisation_pct", "%"),
-            ]),
         ],
     },
 }
@@ -576,6 +600,7 @@ def _sector_chat_response(target: str, node_result: dict[str, Any]) -> dict[str,
     raw_citations = node_result.get(config["citations_key"]) or []
     citations = [
         {
+            **(citation if target == "agriculture_sector" else {}),
             "source_agent": citation["source_agent"],
             "authority": citation.get("source_authority"),
             "source_authority": citation.get("source_authority"),
@@ -586,6 +611,7 @@ def _sector_chat_response(target: str, node_result: dict[str, Any]) -> dict[str,
             "source_base_url": citation.get("source_base_url"),
             "source_note": citation.get("source_note"),
             "as_of": citation.get("as_of"),
+            "fetched_at": citation.get("fetched_at"),
             "frequency": citation.get("frequency"),
             "unit": citation.get("unit"),
             "period": citation.get("observation_period"),
@@ -609,7 +635,7 @@ def _sector_chat_response(target: str, node_result: dict[str, Any]) -> dict[str,
     retrieval_errors = [error for error in errors if error not in reasoning_errors]
     if reasoning_errors:
         report += "\n\nAnalysis note: The configured LLM could not provide a narrative interpretation."
-    if retrieval_errors:
+    if retrieval_errors and target != "agriculture_sector":
         report += "\n\n### Data retrieval issues\n\n" + "\n".join(f"- {error}" for error in retrieval_errors)
 
     available_values = []
@@ -630,6 +656,9 @@ def _sector_chat_response(target: str, node_result: dict[str, Any]) -> dict[str,
         else "completed"
     )
 
+    if target == "agriculture_sector":
+        status = node_result.get("agriculture_sector_status", "unavailable")
+
     return {
         "status": status,
         "agent_routed": f"{config['name']} Specialist",
@@ -647,10 +676,13 @@ async def _run_direct_sector_chat(
     *,
     selected_services: set[str] | None = None,
     selection_error: str | None = None,
+    parameters: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     config = _DIRECT_SECTOR_CHAT[target]
     try:
         state: dict[str, Any] = {"query": message}
+        if target == "agriculture_sector":
+            state["parameters"] = parameters or {}
         if selected_services is not None:
             state["_selected_services"] = selected_services
             state["_selection_error"] = selection_error
@@ -1007,12 +1039,19 @@ async def stream_chat(request: ChatMessageRequest):
 
         elif target in _DIRECT_SECTOR_CHAT:
             sector_config = _DIRECT_SECTOR_CHAT[target]
-            selected_services, selection_error = await select_relevant_services_with_llm(
-                query=msg,
-                service_keywords=sector_config["service_keywords"],
-                api_key=sector_config["api_key"],
-                model=sector_config["model"],
-            )
+            if target == "real_sector":
+                selected_services = _select_services_deterministically(msg)
+                selection_error = None
+            elif target == "agriculture_sector":
+                selected_services = select_agriculture_tools(msg)
+                selection_error = None
+            else:
+                selected_services, selection_error = await select_relevant_services_with_llm(
+                    query=msg,
+                    service_keywords=sector_config["service_keywords"],
+                    api_key=sector_config["api_key"],
+                    model=sector_config["model"],
+                )
             for progress_event in _sector_progress_events(
                 target,
                 selected_services,
@@ -1026,6 +1065,7 @@ async def stream_chat(request: ChatMessageRequest):
                 msg,
                 selected_services=selected_services,
                 selection_error=selection_error,
+                parameters=request.parameters,
             )
             report_text = sector_response["full_report"]
             words = report_text.split()
@@ -1037,6 +1077,7 @@ async def stream_chat(request: ChatMessageRequest):
             done_payload = {
                 "type": "done",
                 "agent_routed": sector_response["agent_routed"],
+                "answer": report_text,
                 "full_report": report_text,
                 "data_context": sector_response["data_context"],
                 "freshness": sector_response["freshness"],
@@ -1119,7 +1160,7 @@ async def sync_chat(request: ChatMessageRequest) -> Dict[str, Any]:
             "citations": _build_finance_citations(d_context, f_freshness),
         }
     elif target in _DIRECT_SECTOR_CHAT:
-        return await _run_direct_sector_chat(target, request.message)
+        return await _run_direct_sector_chat(target, request.message, parameters=request.parameters)
     else:
         initial_state = {
             "query": request.message,

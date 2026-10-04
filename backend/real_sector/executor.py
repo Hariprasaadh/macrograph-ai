@@ -35,7 +35,6 @@ class RealSectorAgentExecutor(AgentExecutor):
                 "Specialized AI Agent for Indian Real Sector Macroeconomics: "
                 "MoSPI Index of Industrial Production (IIP Sectoral & Use-Based), "
                 "DPIIT Eight Core Industries (Steel, Cement, Electricity, Coal, Refinery), "
-                "RBI DBIE Manufacturing GVA & OBICUS Capacity Utilisation, "
                 "and Infrastructure/Capital Goods market context. Strict provenance enforced."
             ),
             url=base_url,
@@ -48,7 +47,6 @@ class RealSectorAgentExecutor(AgentExecutor):
                 "iip_analysis",
                 "manufacturing",
                 "core_industries",
-                "capacity_utilisation",
                 "gva_growth",
                 "industrial_trends",
             ],
@@ -68,11 +66,11 @@ class RealSectorAgentExecutor(AgentExecutor):
                     examples=["Assess growth in Eight Core Industries.", "How are steel and cement output performing?"],
                 ),
                 AgentSkill(
-                    id="manufacturing_capacity_analysis",
-                    name="Manufacturing GVA & OBICUS Capacity Utilisation",
-                    description="Evaluates Manufacturing GVA growth and RBI OBICUS manufacturing capacity utilisation ratio (%).",
-                    tags=["gva", "obicus", "capacity_utilisation", "manufacturing"],
-                    examples=["What is India's manufacturing capacity utilisation?", "Assess quarterly manufacturing GVA growth."],
+                    id="manufacturing_gva_analysis",
+                    name="Manufacturing GVA Analysis",
+                    description="Evaluates quarterly manufacturing GVA growth.",
+                    tags=["gva", "manufacturing"],
+                    examples=["Assess quarterly manufacturing GVA growth."],
                 ),
                 AgentSkill(
                     id="joined_real_sector_diagnostic",
@@ -101,7 +99,6 @@ class RealSectorAgentExecutor(AgentExecutor):
                 client.fetch_iip_use_based(lookback_months=6),
                 client.fetch_core_industries(lookback_months=6),
                 client.fetch_manufacturing_gva(lookback_quarters=4),
-                client.fetch_obicus_capacity(lookback_quarters=4),
                 client.fetch_infrastructure_market_context(),
                 return_exceptions=True,
             )
@@ -110,17 +107,15 @@ class RealSectorAgentExecutor(AgentExecutor):
             iip_use = results[1] if not isinstance(results[1], Exception) and results[1] else []
             ici = results[2] if not isinstance(results[2], Exception) and results[2] else []
             gva = results[3] if not isinstance(results[3], Exception) and results[3] else []
-            obicus = results[4] if not isinstance(results[4], Exception) and results[4] else []
-            market = results[5] if not isinstance(results[5], Exception) and results[5] else []
+            market = results[4] if not isinstance(results[4], Exception) and results[4] else []
 
             latest_mfg_yoy = iip_sec[-1].manufacturing_yoy_pct if iip_sec else None
             latest_cap_yoy = iip_use[-1].capital_goods_yoy_pct if iip_use else None
             latest_steel_yoy = ici[-1].steel_yoy_pct if ici else None
             latest_cement_yoy = ici[-1].cement_yoy_pct if ici else None
-            latest_cu = obicus[-1].capacity_utilisation_pct if obicus else None
 
             trends = evaluate_industrial_trends(
-                latest_mfg_yoy, latest_cap_yoy, latest_steel_yoy, latest_cement_yoy, latest_cu
+                latest_mfg_yoy, latest_cap_yoy, latest_steel_yoy, latest_cement_yoy
             )
 
             # Determine executive diagnostic line
@@ -142,7 +137,6 @@ class RealSectorAgentExecutor(AgentExecutor):
                 f"- **Core-sector Steel**: {trends.get('Core Steel', 'N/A')} (Period: {ici[-1].period if ici else 'N/A'})",
                 f"- **Core-sector Cement**: {trends.get('Core Cement', 'N/A')} (Period: {ici[-1].period if ici else 'N/A'})",
                 f"- **Manufacturing GVA**: {gva[-1].manufacturing_gva_real_yoy_pct if gva else 'N/A'}% YoY (Period: {gva[-1].period if gva else 'N/A'})",
-                f"- **Capacity Utilisation (OBICUS)**: {trends.get('Capacity Utilisation', 'N/A')} (Period: {obicus[-1].period if obicus else 'N/A'})",
                 "",
                 "## Market Context (Infrastructure & Capital Goods)",
             ]
@@ -163,8 +157,6 @@ class RealSectorAgentExecutor(AgentExecutor):
                 lines.append(f"| Eight Core Industries | {ici[-1].citation.source_authority} | {ici[-1].citation.table_reference} | {ici[-1].period} | {ici[-1].citation.freshness.value} |")
             if gva:
                 lines.append(f"| Manufacturing GVA | {gva[-1].citation.source_authority} | {gva[-1].citation.table_reference} | {gva[-1].period} | {gva[-1].citation.freshness.value} |")
-            if obicus:
-                lines.append(f"| OBICUS Capacity | {obicus[-1].citation.source_authority} | {obicus[-1].citation.table_reference} | {obicus[-1].period} | {obicus[-1].citation.freshness.value} |")
 
             report_md = "\n".join(lines)
 

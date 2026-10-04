@@ -34,7 +34,12 @@ export interface UserProfile {
 }
 
 export interface CitationItem {
+  citation_id?: number;
   source_agent: string;
+  source?: string;
+  source_category?: string;
+  indicator?: string;
+  value?: number;
   authority?: string;
   source_authority?: string;
   table?: string;
@@ -48,9 +53,15 @@ export interface CitationItem {
   source_base_url?: string;
   source_note?: string;
   as_of?: string;
+  fetched_at?: string;
   frequency?: string;
   unit?: string;
   provenance_hash?: string;
+  mcp_tool?: string;
+  upstream_tool?: string;
+  data_vintage?: string;
+  retrieved_at?: string;
+  source_filters?: Record<string, unknown>;
 }
 
 export interface StreamStep {
