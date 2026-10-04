@@ -29,6 +29,10 @@ class MonetarySectorSettings(BaseSettings):
     MONETARY_LLM_TEMPERATURE: float = Field(default=0.1)
     MONETARY_LLM_TIMEOUT: int = Field(default=60)
     MONETARY_LLM_MAX_RETRIES: int = Field(default=3)
+    MONETARY_LLM_MAX_TOKENS: int = Field(
+        default=3500,
+        description="Reasoning output budget for the monetary sector agent (longer, detailed responses).",
+    )
 
     # RBI DBIE endpoints
     DBIE_CDN_BASE: str = Field(
@@ -40,6 +44,10 @@ class MonetarySectorSettings(BaseSettings):
         description="RBI DBIE Postgres REST API",
     )
     DBIE_TIMEOUT: int = Field(default=20)
+    MONETARY_MCP_TIMEOUT: int = Field(
+        default=90,
+        description="Per-request budget for MCP stdio transport (covers npx/uvx cold starts).",
+    )
 
     # Local DuckDB path (sector-dedicated, isolated from other sectors)
     MONETARY_DB_PATH: Path = Field(

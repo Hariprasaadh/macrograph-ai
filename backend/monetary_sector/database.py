@@ -53,6 +53,9 @@ _DDL_STATEMENTS: list[str] = [
         bank_rate_pct          DOUBLE,
         crr_pct                DOUBLE,
         slr_pct                DOUBLE,
+        corridor_width_bps     DOUBLE,
+        stance                 VARCHAR,
+        rates_effective_from   VARCHAR,
         citation               VARCHAR NOT NULL,
         fetched_at             TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
@@ -135,6 +138,16 @@ def initialise_schema(seed_baseline: bool = False) -> None:
     with get_connection() as con:
         for stmt in _DDL_STATEMENTS:
             con.execute(stmt.strip())
+        # Safe column migrations for existing tables
+        for migration in [
+            "ALTER TABLE policy_rates ADD COLUMN IF NOT EXISTS corridor_width_bps DOUBLE",
+            "ALTER TABLE policy_rates ADD COLUMN IF NOT EXISTS stance VARCHAR",
+            "ALTER TABLE policy_rates ADD COLUMN IF NOT EXISTS rates_effective_from VARCHAR",
+        ]:
+            try:
+                con.execute(migration)
+            except Exception:
+                pass
     logger.info("Monetary sector DuckDB schema initialised at %s", _DB_PATH)
 
 

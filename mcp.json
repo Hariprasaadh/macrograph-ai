@@ -3,6 +3,21 @@
     "tavily-remote-mcp": {
       "command": "npx -y mcp-remote https://mcp.tavily.com/mcp/?tavilyApiKey=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",
       "env": {}
+    },
+    "eco-policy": {
+      "command": "uvx",
+      "args": ["eco-policy-mcp"],
+      "env": {}
+    },
+    "finstack": {
+      "command": "uvx",
+      "args": ["finstack-mcp"],
+      "env": {}
+    },
+    "dbie": {
+      "command": "npx",
+      "args": ["-y", "@reserve-bank-innovation-hub/dbie-mcp"],
+      "env": {}
     }
   }
 }

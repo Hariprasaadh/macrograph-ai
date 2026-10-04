@@ -62,6 +62,46 @@ class Citation(BaseModel):
     source_values: dict[str, Any] = Field(default_factory=dict)
 
 
+class TavilyNewsItem(BaseModel):
+    """Real-time monetary policy news and research snippet from Tavily AI."""
+    title: str = Field(..., description="Headline of the article or publication.")
+    url: str = Field(..., description="Canonical URL of the source.")
+    content: str = Field(..., description="Relevant text excerpt or summary.")
+    published_date: str | None = Field(None, description="Publication timestamp or date string.")
+    source: str = Field(default="Tavily AI Search", description="Data source identifier.")
+    score: float | None = Field(None, description="Relevance score from search engine.")
+
+
+class MonetaryNewsResponse(BaseModel):
+    """Response container for real-time monetary search intelligence."""
+    status: DataFreshness
+    query: str
+    news_items: list[TavilyNewsItem]
+    total_results: int = 0
+    error_message: str | None = None
+
+
+class MonetaryMarketMetric(BaseModel):
+    """Bond yield, money-market rate, or policy transmission indicator."""
+    symbol: str = Field(..., description="Market symbol or instrument name.")
+    name: str = Field(..., description="Descriptive name (e.g. 10Y Indian Benchmark G-Sec).")
+    current_yield_pct: float | None = Field(None, description="Current yield or rate (%).")
+    change_bps: float | None = Field(None, description="Day-over-day change in basis points.")
+    spread_over_repo_bps: float | None = Field(None, description="Spread over RBI Policy Repo rate (bps).")
+    observation_date: str | None = Field(None, description="Observation date (YYYY-MM-DD).")
+    citation: Citation
+
+
+class MonetaryMarketResponse(BaseModel):
+    """Snapshot of sovereign bond yields, interbank liquidity, and transmission spreads."""
+    status: DataFreshness
+    gsec_10y_yield_pct: float | None = None
+    overnight_wacr_pct: float | None = None
+    policy_spread_bps: float | None = None
+    metrics: list[MonetaryMarketMetric] = Field(default_factory=list)
+    total_records: int = 0
+
+
 # ---------------------------------------------------------------------------
 # Pillar 1 — Policy Rates
 # ---------------------------------------------------------------------------
@@ -77,6 +117,9 @@ class PolicyRatesRecord(BaseModel):
     bank_rate_pct: float | None = Field(None, description="Bank Rate (%).")
     crr_pct: float | None = Field(None, description="Cash Reserve Ratio (%).")
     slr_pct: float | None = Field(None, description="Statutory Liquidity Ratio (%).")
+    corridor_width_bps: float | None = Field(None, description="Width of LAF corridor (MSF minus SDF in bps).")
+    stance: str | None = Field(None, description="Monetary Policy Committee stance label.")
+    rates_effective_from: str | None = Field(None, description="Date from which these rates became effective.")
     citation: Citation
 
 

@@ -61,6 +61,25 @@ const DEFAULT_MESSAGES: Record<string, ChatMessage[]> = {
       ],
     },
   ],
+  monetary_sector: [
+    {
+      id: 'welcome-monetary',
+      role: 'assistant',
+      content: `### Monetary & Liquidity Policy Specialist\n\nI am the dedicated **Monetary Sector Agent** — India's most comprehensive monetary policy intelligence engine, combining official **RBI DBIE** data with **real-time MPC research** via Tavily AI Search.\n\n### My Research Pipeline:\n1. 🏛️ **Official RBI Data** — Policy rates (Repo, SDF, MSF, CRR, SLR), Money Supply (M1/M2/M3), System Liquidity (LAF) from DBIE\n2. 📈 **Sovereign Bond Market** — 10-Year G-Sec benchmark yield & spread over repo (policy transmission signal)\n3. 📡 **Real-Time MPC Intelligence** — Live research via Tavily: MPC resolutions, Governor speeches, RBI press releases\n4. 🧠 **AI Synthesis** — Groq LLM analyses all three sources and delivers a structured, cited monetary policy report\n\n### Coverage:\n- **Rate Corridor**: Repo Rate, SDF, MSF, Bank Rate & LAF corridor width (bps)\n- **Money Supply**: M3 Broad Money growth, M1 Narrow Money, Reserve Money (M0)\n- **Liquidity Operations**: Net LAF absorption/injection, WACR alignment with policy rate\n- **Monetary Stance**: MPC stance label, real policy rate, historical stance transitions\n- **Policy Transmission**: G-Sec 10Y yield, sovereign spread dynamics\n\n> 💡 **Enhanced with Tavily AI Search** — My responses include real-time citations from RBI notifications, MPC meeting minutes, and economic research.\n\nAsk about monetary policy, liquidity, or MPC decisions below!`,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      agentRouted: 'Monetary & Liquidity Policy Specialist',
+      citations: [
+        {
+          source_agent: 'monetary_sector',
+          authority: 'Reserve Bank of India (RBI)',
+          table: 'DBIE: Policy Rates, Money Supply, LAF Liquidity + Tavily Real-Time Search',
+          period: 'Live & Upstream Snapshot',
+          freshness: 'live',
+          retrieval_url: 'https://rbi.org.in',
+        },
+      ],
+    },
+  ],
 };
 
 const SECTOR_WORKSPACE_DESCRIPTIONS: Record<string, string> = {
@@ -71,7 +90,7 @@ const SECTOR_WORKSPACE_DESCRIPTIONS: Record<string, string> = {
   capital_market_sector:
     'Uses a configured NSE NIFTY request and locally stored market observations.',
   monetary_sector:
-    'Uses the official RBIH DBIE MCP snapshot for policy rates, money stock, and RBI liquidity operations; upstream data reflects the deployment’s last scrape, not real-time values.',
+    'Combines official RBI DBIE data (policy rates, money supply, LAF liquidity) with real-time MPC intelligence via Tavily AI Search, synthesized by Groq LLM into cited monetary policy analysis.',
   real_sector:
     'Fetches MoSPI IIP (sectoral & use-based), DPIIT Eight Core Industries index, and RBI DBIE manufacturing GVA & OBICUS capacity utilisation data with per-observation provenance.',
 };
@@ -206,9 +225,10 @@ const SUGGESTED_PROMPTS: Record<string, { text: string }[]> = {
     { text: 'Summarize available G-Sec yields across the reported maturities.' },
   ],
   monetary_sector: [
-    { text: 'What policy-rate observations are available, including repo, SDF, and MSF?' },
-    { text: 'Summarize the latest available money-supply observations for M1, M2, and M3.' },
-    { text: 'What system-liquidity and monetary-stance observations are available?' },
+    { text: 'What is the current RBI repo rate, SDF, MSF corridor width, and MPC stance? Include any recent rate changes.' },
+    { text: 'Analyze India\'s M3 broad money growth — is monetary expansion consistent with inflation control?' },
+    { text: 'What is the current system liquidity condition (LAF surplus/deficit) and how does WACR track the policy repo rate?' },
+    { text: 'Explain the latest MPC decision and monetary policy stance with real-time citations from RBI notifications.' },
   ],
   real_sector: [
     { text: 'What is the latest IIP growth rate for Manufacturing, Mining, and Electricity in India?' },
@@ -224,8 +244,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 }) => {
   // Separate message histories per agent
   const [messagesByAgent, setMessagesByAgent] = useState<Record<string, ChatMessage[]>>(() => ({
-    ...DEFAULT_MESSAGES,
     ...NEW_SECTOR_DEFAULT_MESSAGES,
+    ...DEFAULT_MESSAGES,
   }));
   const [input, setInput] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);

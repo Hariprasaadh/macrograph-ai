@@ -133,6 +133,7 @@ async def reason_over_sector_data(
     api_key: str | None,
     model: str,
     temperature: float = 0.1,
+    max_tokens: int = 2200,
 ) -> str:
     key = _resolve_groq_api_key(api_key)
     if not key:
@@ -144,7 +145,7 @@ async def reason_over_sector_data(
         response = await client.chat.completions.create(
             model=model,
             temperature=temperature,
-            max_tokens=2200,
+            max_tokens=max_tokens,
             messages=[
                 {
                     "role": "system",
