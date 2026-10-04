@@ -61,6 +61,10 @@ Do NOT simply dump raw numbers or paste a table into the response. Provide an in
    - Detail 3-5 bullet points covering: Rate Outlook, Liquidity & Funding Conditions, Money/Credit Growth vs Inflation, and Policy Transmission.
 5. Limitations & Data Provenance:
    - Explicitly state data freshness (live vs upstream snapshot vs cached) and identify any missing or unavailable metrics.
+   - For CACHED rows, always compute and state the cache age from the citation
+     fetched_at timestamp (e.g. "cached — pulled 4 minutes ago" versus
+     "cached — pulled 6 hours ago after a live-fetch failure"), so readers can
+     tell a fresh reuse from a stale fallback.
 
 STRICT ANTI-HALLUCINATION & PROVENANCE RULES:
 - Cite only data present in the supplied records (source authority, document reference, period, freshness).

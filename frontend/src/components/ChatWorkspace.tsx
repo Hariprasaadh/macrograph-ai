@@ -990,12 +990,15 @@ function formatMarkdown(text: string, wrapTables = false): string {
           : table;
       }
     )
-    // Bullet lists
+    // Bullet lists ("- " and "1. " markers; the model emits both)
     .replace(/^\- (.*$)/gim, '<li>$1</li>')
+    .replace(/^\d+\. (.*$)/gim, '<li>$1</li>')
     // Wrap consecutive list items in <ul>
     .replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>')
-    // Line breaks to paragraphs
-    .replace(/\n\n/g, '<p></p>');
+    // Line breaks: blank line = paragraph gap, single newline = visible break
+    // (HTML collapses raw "\n", which previously glued everything into one line)
+    .replace(/\n\n/g, '<br><br>')
+    .replace(/\n/g, '<br>');
 
   return html;
 }

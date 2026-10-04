@@ -757,6 +757,7 @@ class TestMonetaryReasoningBudget:
             "Structured Observations Table",
             "Key Takeaways",
             "Limitations & Data Provenance",
+            "cache age from the citation",
         ):
             assert marker in captured["system_prompt"]
 
