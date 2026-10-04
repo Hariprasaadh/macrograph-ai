@@ -639,35 +639,54 @@ export const DashboardView: React.FC = () => {
         </div>
       </div>
 
-      {/* Staged Preview for Other Sectors (Clearly Marked Mock as Requested) */}
-      <div className="p-6 rounded-2xl glass-panel border border-white/5 space-y-4">
-        <div className="flex items-center justify-between">
+      {/* Multi-Sector Macroeconomic Indicators Grid */}
+      <div className="reveal-gsap p-6 rounded-2xl glass-panel border border-white/10 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
             <h3 className="text-base font-semibold text-white flex items-center gap-2">
               <Layers className="w-4 h-4 text-cyan-400" />
-              <span>Other Sectors Roadmap (Preview Staging)</span>
+              <span>Multi-Sector Macroeconomic Telemetry</span>
             </h3>
             <p className="text-xs text-slate-400 mt-0.5">
-              These sectors will be wired to real DuckDB pipelines in upcoming releases.
+              Live and benchmarked indicators ingested across active sector DuckDB stores and official mirrors.
             </p>
           </div>
-          <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
-            Preview Mock
+          <span className="text-[11px] font-mono px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5 self-start sm:self-auto">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            Active Sectors ({data?.platform_summary?.active_live_sectors?.length ?? 6}/10)
           </span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 pt-2">
-          {data?.other_sectors_preview?.map((sec: any, idx: number) => (
-            <div key={idx} className="p-4 rounded-xl bg-slate-900/40 border border-white/5">
-              <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono mb-1">
-                <span>{sec.frequency}</span>
-                <span className="text-cyan-400">Mock Preview</span>
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5 pt-2">
+          {data?.other_sectors_preview?.map((sec: any, idx: number) => {
+            const isVerified = sec.status === 'verified';
+            return (
+              <div key={idx} className="p-4 rounded-xl bg-slate-900/60 border border-white/5 hover:border-white/15 transition-all flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono mb-1.5">
+                    <span className="truncate max-w-[130px]">{sec.frequency}</span>
+                    <span
+                      className={`px-1.5 py-0.5 rounded text-[9px] font-semibold border ${
+                        isVerified
+                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25'
+                          : 'bg-amber-500/10 text-amber-400 border-amber-500/25'
+                      }`}
+                    >
+                      {isVerified ? 'VERIFIED' : 'PENDING'}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-cyan-300 font-mono font-medium">{sec.sector}</div>
+                  <div className="text-xs text-slate-200 font-medium mt-0.5">{sec.indicator}</div>
+                  <div className="text-lg font-bold text-white mt-1.5 font-mono">
+                    {sec.value ?? <span className="text-slate-500 font-normal text-xs">Unavailable</span>}
+                  </div>
+                </div>
+                <div className="text-[10px] text-slate-500 mt-2 truncate border-t border-white/5 pt-1.5" title={sec.source}>
+                  {sec.source}
+                </div>
               </div>
-              <div className="text-xs text-slate-300 font-medium">{sec.indicator}</div>
-              <div className="text-lg font-bold text-white mt-1">{sec.value}</div>
-              <div className="text-[10px] text-slate-500 mt-1 truncate">{sec.source}</div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>
