@@ -34,6 +34,7 @@ from agriculture_sector.agent import (
     agriculture_agent_node, select_agriculture_tools,
     _SERVICE_KEYWORDS as _AGRICULTURE_SERVICE_KEYWORDS,
 )
+from prices_sector.agent import prices_agent_node, is_direct_prices_query
 
 
 @asynccontextmanager
@@ -277,6 +278,17 @@ _DIRECT_SECTOR_CHAT: dict[str, dict[str, Any]] = {
         "citations_key": "agriculture_sector_citations",
         "errors_key": "agriculture_sector_errors",
         "freshness_key": "agriculture_sector_freshness",
+        "sections": [],
+    },
+    "prices_sector": {
+        "node": prices_agent_node,
+        "service_keywords": {},
+        "name": "Prices & Inflation",
+        "data_key": "prices_sector_data",
+        "analysis_key": "prices_sector_analysis",
+        "citations_key": "prices_sector_citations",
+        "errors_key": "prices_sector_errors",
+        "freshness_key": "prices_sector_freshness",
         "sections": [],
     },
     "external_sector": {
@@ -658,6 +670,8 @@ def _sector_chat_response(target: str, node_result: dict[str, Any]) -> dict[str,
 
     if target == "agriculture_sector":
         status = node_result.get("agriculture_sector_status", "unavailable")
+    if target == "prices_sector":
+        status = node_result.get("prices_sector_status", "unavailable")
 
     return {
         "status": status,
@@ -987,6 +1001,8 @@ async def stream_chat(request: ChatMessageRequest):
     async def event_generator():
         msg = request.message.strip()
         target = request.agent.lower()
+        if target == "orchestrator" and is_direct_prices_query(msg):
+            target = "prices_sector"
 
         if target == "finance_sector":
             # Direct domain investigation of Finance & Banking sector
@@ -1044,6 +1060,9 @@ async def stream_chat(request: ChatMessageRequest):
                 selection_error = None
             elif target == "agriculture_sector":
                 selected_services = select_agriculture_tools(msg)
+                selection_error = None
+            elif target == "prices_sector":
+                selected_services = set()
                 selection_error = None
             else:
                 selected_services, selection_error = await select_relevant_services_with_llm(
@@ -1147,6 +1166,8 @@ async def stream_chat(request: ChatMessageRequest):
 async def sync_chat(request: ChatMessageRequest) -> Dict[str, Any]:
     """Synchronous non-streaming chat endpoint."""
     target = request.agent.lower()
+    if target == "orchestrator" and is_direct_prices_query(request.message):
+        target = "prices_sector"
     if target == "finance_sector":
         node_result = await finance_agent_node({"query": request.message})
         d_context = node_result.get("finance_sector_data", {})

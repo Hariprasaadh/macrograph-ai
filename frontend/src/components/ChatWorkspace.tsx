@@ -15,6 +15,7 @@ import {
   Users,
   Activity,
   Sprout,
+  Percent,
   type LucideIcon,
 } from 'lucide-react';
 import { ChatMessage, StreamStep } from '../types';
@@ -96,6 +97,8 @@ const SECTOR_WORKSPACE_DESCRIPTIONS: Record<string, string> = {
     'Combines official RBI DBIE data (policy rates, money supply, LAF liquidity) with real-time MPC intelligence via Tavily AI Search, synthesized by Groq LLM into cited monetary policy analysis.',
   real_sector:
     'Fetches MoSPI IIP (sectoral & use-based), DPIIT Eight Core Industries index, and RBI DBIE manufacturing GVA data with per-observation provenance.',
+  prices_sector:
+    'Fetches live CPI and WPI observations from the MoSPI e-Sankhyiki MCP, with IMF data available as a clearly labeled secondary validation source.',
 };
 
 const SECTOR_WELCOME_MESSAGES: Record<string, string> = Object.fromEntries(
@@ -138,6 +141,7 @@ const AGENT_ICONS: Record<string, LucideIcon> = {
   capital_market_sector: TrendingUp,
   monetary_sector: Coins,
   real_sector: Activity,
+  prices_sector: Percent,
 };
 
 const AGENT_SHORT_NAMES: Record<string, string> = {
@@ -244,6 +248,11 @@ const SUGGESTED_PROMPTS: Record<string, { text: string }[]> = {
     { text: 'What is the latest IIP growth rate for Manufacturing, Mining, and Electricity in India?' },
     { text: 'Summarize the Eight Core Industries (ICI) index — steel, cement, and coal YoY growth.' },
     { text: 'What are the latest use-based IIP figures for Capital Goods and Consumer Durables?' },
+  ],
+  prices_sector: [
+    { text: "What is India's latest CPI inflation from MoSPI?" },
+    { text: "Show India's CPI food, rural, and urban inflation." },
+    { text: "What is India's latest WPI inflation?" },
   ],
 };
 
