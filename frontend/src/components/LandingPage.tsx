@@ -15,6 +15,7 @@ import {
   CheckCircle2,
   ChevronRight,
   Activity,
+  Receipt,
   Menu,
   X,
 } from 'lucide-react';
@@ -54,6 +55,7 @@ const useRevealOnScroll = () => {
 
 const HERO_ROTATING = [
   'Indian Macroeconomics.',
+  'Fiscal & Sovereign Debt.',
   'Policy Transmission.',
   'Banking Telemetry.',
   'Cross-Sector Shocks.',
@@ -61,12 +63,13 @@ const HERO_ROTATING = [
 
 const TRUST_STRIP = [
   'RBI DBIE Official Mirrors',
-  'MoSPI National Accounts',
-  'IMF SDMX 3.0 BPM6',
-  'NSE Market Feeds',
-  'DuckDB Columnar Cache',
-  'A2A Agent Protocol',
-  'FastMCP Gateways',
+  'Ministry of Finance Union Budget',
+  'MoSPI eSankhyiki FastMCP',
+  'IMF SDMX 3.0 WEO & BPM6',
+  'GST Council Monthly Revenue',
+  'NSE Market Telemetry',
+  'DuckDB Columnar Persistence',
+  'A2A Protocol Reasoning Mesh',
   'Zero Hallucination Standard',
 ];
 
@@ -131,6 +134,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       latency: "290ms",
       confidence: "99.8%",
       summary: "SCB Gross NPA ratio dropped to a multi-decade low of 2.8% (Net NPA: 0.6%) with Provision Coverage Ratio (PCR) at 76.4%. CRAR at 16.8% provides a strong 530 bps safety buffer above Basel III norms. Bank Nifty trades at resilient multiples with Nifty Bank at 54,450.",
+    },
+    {
+      title: "Union Fiscal Deficit & Capex Push",
+      query: "Assess India's Union Gross Fiscal Deficit consolidation target (4.9% of GDP) and public capital expenditure execution.",
+      agents: ["Fiscal Sector", "Real Sector", "Monetary Sector"],
+      sources: ["Union Budget 2024-25 (CGA Statement 1)", "IMF WEO IND.GGXWDG_NGDP.A", "MoSPI Net Product Taxes"],
+      latency: "320ms",
+      confidence: "99.7%",
+      summary: "Union Fiscal Deficit for FY 2024-25 is targeted at ₹16.12 Lakh Cr (4.9% of GDP, consolidating towards <4.5% by FY26). Capex allocation surged to ₹11.11 Lakh Cr (+17% YoY), driving infrastructure multiplier effects. Gross monthly GST revenue averages ₹1.82 Lakh Cr with 10.2% buoyancy. General Government debt stands at 84.78% of GDP with sustainable primary deficit dynamics.",
     },
   ];
 
@@ -330,7 +342,21 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         <Marquee3D items={TRUST_STRIP} />
 
         {/* Telemetry metrics strip — 3D tilt depth cards */}
-        <div className="reveal mt-12 sm:mt-16 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 max-w-5xl mx-auto text-left">
+        <div className="reveal mt-12 sm:mt-16 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 max-w-7xl mx-auto text-left">
+          <TiltCard label="Fiscal deficit telemetry" maxTilt={6}>
+          <div className="p-5 rounded-2xl mesh-card text-left h-full border border-pink-500/20 shadow-[0_0_25px_rgba(236,72,153,0.1)]">
+            <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
+              <span>Union Fiscal Deficit</span>
+              <span className="text-[10px] px-2 py-0.5 rounded bg-pink-500/10 text-pink-300 border border-pink-500/20">MoF / CGA</span>
+            </div>
+            <div className="text-3xl font-extrabold text-white mt-2 font-mono">4.9%</div>
+            <div className="text-xs text-pink-400 mt-1 flex items-center gap-1">
+              <Receipt className="w-3.5 h-3.5" />
+              <span>₹16.12L Cr BE • GST ₹1.82L Cr</span>
+            </div>
+          </div>
+          </TiltCard>
+
           <TiltCard label="Non-food credit telemetry" maxTilt={6}>
           <div className="p-5 rounded-2xl mesh-card text-left h-full">
             <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
@@ -575,38 +601,49 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   </div>
                 </div>
 
-                <div className="grid md:grid-cols-3 gap-4">
+                <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
                   <div className="p-5 rounded-2xl bg-slate-900/60 border border-white/[0.06] space-y-3">
                     <div className="flex items-center gap-2 text-cyan-400 text-sm font-semibold font-mono">
                       <Landmark className="w-4 h-4" />
                       <span>RBI DBIE Gateway</span>
                     </div>
                     <p className="text-xs text-slate-400">
-                      340+ official central bank tables covering Scheduled Commercial Banks, policy key rates, daily LAF, weekly forex, and money stock components.
+                      340+ official central bank tables covering Scheduled Commercial Banks, policy rates, daily LAF, and money stock components.
                     </p>
                     <div className="text-[11px] font-mono text-slate-500">Endpoints: r531, r539, r330, r574, r689</div>
                   </div>
 
                   <div className="p-5 rounded-2xl bg-slate-900/60 border border-white/[0.06] space-y-3">
-                    <div className="flex items-center gap-2 text-indigo-400 text-sm font-semibold font-mono">
-                      <Globe className="w-4 h-4" />
-                      <span>IMF SDMX 3.0 Gateway</span>
+                    <div className="flex items-center gap-2 text-pink-400 text-sm font-semibold font-mono">
+                      <Receipt className="w-4 h-4" />
+                      <span>MoSPI eSankhyiki FastMCP</span>
                     </div>
                     <p className="text-xs text-slate-400">
-                      Standardized Balance of Payments (BPM6), international reserves liquidity (IRFCL), and World Economic Outlook (WEO) medium-term projections.
+                      Official FastMCP gateway to National Accounts (NAS) Net Taxes on Products, Government Consumption, and IIP series.
                     </p>
-                    <div className="text-[11px] font-mono text-slate-500">Protocol: Streamable HTTP • SDMX 3.0</div>
+                    <div className="text-[11px] font-mono text-slate-500">Server: mcp.mospi.gov.in (NAS Ind 2)</div>
+                  </div>
+
+                  <div className="p-5 rounded-2xl bg-slate-900/60 border border-white/[0.06] space-y-3">
+                    <div className="flex items-center gap-2 text-indigo-400 text-sm font-semibold font-mono">
+                      <Globe className="w-4 h-4" />
+                      <span>IMF SDMX 3.0 & WEO</span>
+                    </div>
+                    <p className="text-xs text-slate-400">
+                      General Government Gross Debt % of GDP, Net Lending/Borrowing, and World Economic Outlook medium-term fiscal projections.
+                    </p>
+                    <div className="text-[11px] font-mono text-slate-500">Protocol: SDMX 3.0 • IND.GGXWDG</div>
                   </div>
 
                   <div className="p-5 rounded-2xl bg-slate-900/60 border border-white/[0.06] space-y-3">
                     <div className="flex items-center gap-2 text-brand-400 text-sm font-semibold font-mono">
-                      <TrendingUp className="w-4 h-4" />
-                      <span>Markets & Real-Time Tavily</span>
+                      <Zap className="w-4 h-4" />
+                      <span>eco-policy & MoF PIB</span>
                     </div>
                     <p className="text-xs text-slate-400">
-                      Real-time Bank Nifty index quotes, top banking equity valuation ratios (SBIN, HDFC, ICICI), and live macroeconomic news shocks.
+                      Statutory GST slab calculator, mod-36 GSTIN checksum validation, and real-time Ministry of Finance PIB news intelligence.
                     </p>
-                    <div className="text-[11px] font-mono text-slate-500">Feeds: ^NSEBANK, Spot FX, TVLY_KEY_1</div>
+                    <div className="text-[11px] font-mono text-slate-500">Feeds: eco-policy-mcp, Tavily PIB</div>
                   </div>
                 </div>
               </div>

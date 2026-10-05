@@ -83,14 +83,27 @@ export const SECTOR_AGENTS: SectorAgent[] = [
     id: 'fiscal_sector',
     name: 'Fiscal & Public Finance',
     sectorKey: 'fiscal_sector',
-    domain: 'Union Budget, Deficits & Tax Collections',
-    authority: 'Ministry of Finance & CGA',
-    status: 'in_development',
-    ownership: ['Gross Fiscal Deficit', 'Gross GST Collections', 'Central Capex Expenditure', 'General Government Debt-to-GDP'],
-    mcpSources: ['Controller General of Accounts (CGA)', 'GST Portal APIs'],
+    domain: 'Union Budget, Deficits, GST Revenue & Sovereign Debt',
+    authority: 'Ministry of Finance, CGA, MoSPI & IMF',
+    status: 'active',
+    ownership: [
+      'Union Gross Fiscal Deficit (% of GDP & Cr)',
+      'Gross Monthly GST Collections & Component Breakup',
+      'General Government Debt-to-GDP (IMF WEO)',
+      'MoSPI National Accounts Product Taxes',
+      'Statutory Income Tax & GST Calculators',
+      'Real-Time Ministry of Finance PIB Releases (Tavily AI)'
+    ],
+    mcpSources: [
+      'MoSPI eSankhyiki FastMCP (NAS Net Product Taxes)',
+      'IMF WEO SDMX 3.0 MCP (Sovereign Debt & Fiscal Balance)',
+      'eco-policy-mcp (GST Calculation, GSTIN & Tax Regimes)',
+      'Union Budget & CGA Accounts (DuckDB Persistence)',
+      'Tavily AI Search (MoF / PIB Intelligence)'
+    ],
     icon: 'Receipt',
     color: '#ec4899',
-    description: 'Monitors central and state revenue buoyancy, capital spending execution, and sovereign borrowing schedules.',
+    description: 'Directly queries official CGA Union Budget actuals, monthly GST revenues, IMF WEO sovereign debt ratios, MoSPI product taxes, and provides verified statutory tax computations with cryptographic provenance.',
   },
   {
     id: 'external_sector',

@@ -139,12 +139,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
           const isSelected = selectedAgentId === agent.id;
           const isOrchestrator = agent.id === 'orchestrator';
           const isFinance = agent.id === 'finance_sector';
+          const isFiscal = agent.id === 'fiscal_sector';
           const isAdditionalSector = [
             'external_sector',
             'capital_market_sector',
             'labour_sector',
             'monetary_sector',
             'real_sector',
+            'fiscal_sector',
+            'agriculture_sector',
+            'prices_sector',
           ].includes(agent.id);
           const isSelectable = agent.status === 'active';
 
@@ -160,7 +164,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 aria-current={isSelected ? 'true' : undefined}
                 className={`touch-44 w-full p-2 rounded-xl transition-all flex items-center justify-center ${
                   isSelected
-                    ? 'bg-slate-800/90 border border-brand-500/50'
+                    ? isFiscal
+                      ? 'bg-slate-800/90 border border-pink-500/50'
+                      : 'bg-slate-800/90 border border-brand-500/50'
                     : isSelectable
                     ? 'bg-slate-900/40 hover:bg-slate-800/60 border border-white/5'
                     : 'bg-slate-950/40 border border-transparent opacity-50 cursor-not-allowed'
@@ -170,7 +176,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 text-xs font-bold font-mono"
                   style={{ backgroundColor: `${agent.color}20`, color: agent.color, border: `1px solid ${agent.color}40` }}
                 >
-                  {isOrchestrator ? 'OR' : isFinance ? 'FN' : agent.name.slice(0, 2).toUpperCase()}
+                  {isOrchestrator ? 'OR' : isFinance ? 'FN' : isFiscal ? 'FI' : agent.name.slice(0, 2).toUpperCase()}
                 </span>
               </button>
             );
@@ -187,7 +193,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 isSelectable ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'
               } ${
                 isSelected
-                  ? isAdditionalSector
+                  ? isFiscal
+                    ? 'bg-slate-800/90 border border-pink-500/50 shadow-[0_0_20px_rgba(236,72,153,0.15)]'
+                    : isAdditionalSector
                     ? 'bg-slate-800/90 border border-emerald-500/50 shadow-glow-emerald/20'
                     : 'bg-slate-800/90 border border-brand-500/50 shadow-glow-brand/20'
                   : isSelectable
@@ -201,22 +209,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 text-xs font-bold font-mono"
                     style={{ backgroundColor: `${agent.color}20`, color: agent.color, border: `1px solid ${agent.color}40` }}
                   >
-                    {isOrchestrator ? 'OR' : isFinance ? 'FN' : agent.name.slice(0, 2).toUpperCase()}
+                    {isOrchestrator ? 'OR' : isFinance ? 'FN' : isFiscal ? 'FI' : agent.name.slice(0, 2).toUpperCase()}
                   </span>
                   <span className="truncate">
                     <span className={`text-xs font-medium truncate block ${isSelected ? 'text-white font-semibold' : 'text-slate-300'}`}>
                       {agent.name}
                     </span>
                     <span className="text-[10px] text-slate-400 truncate block">
-                      {isOrchestrator ? 'Multi-agent router' : isFinance ? 'Live RBI DBIE connected' : agent.authority}
+                      {isOrchestrator ? 'Multi-agent router' : isFinance ? 'Live RBI DBIE connected' : isFiscal ? 'MoSPI & IMF WEO connected' : agent.authority}
                     </span>
                   </span>
                 </span>
                 {isSelectable ? (
                   <span className="flex items-center gap-1 shrink-0">
                     <span
-                      className={`w-2 h-2 rounded-full ${isFinance ? 'bg-emerald-400 animate-pulse' : isAdditionalSector ? 'bg-emerald-400' : isOrchestrator ? 'bg-brand-400' : ''}`}
-                      style={{ backgroundColor: isOrchestrator || isFinance || isAdditionalSector || !isSelectable ? undefined : agent.color }}
+                      className={`w-2 h-2 rounded-full ${isFiscal ? 'bg-pink-400 animate-pulse' : isFinance ? 'bg-emerald-400 animate-pulse' : isAdditionalSector ? 'bg-emerald-400' : isOrchestrator ? 'bg-brand-400' : ''}`}
+                      style={{ backgroundColor: isOrchestrator || isFinance || isFiscal || isAdditionalSector || !isSelectable ? undefined : agent.color }}
                     />
                     <ChevronRight className="w-3.5 h-3.5 text-slate-500 group-hover:text-slate-300 transition-colors" />
                   </span>
@@ -231,6 +239,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <span className="mt-1.5 flex items-center gap-1 text-[9px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
                   <CheckCircle2 className="w-2.5 h-2.5" />
                   <span>Real RBI DBIE Data Active</span>
+                </span>
+              )}
+              {isFiscal && (!collapsed || isMobile) && (
+                <span className="mt-1.5 flex items-center gap-1 text-[9px] font-mono text-pink-400 bg-pink-500/10 px-1.5 py-0.5 rounded border border-pink-500/20">
+                  <CheckCircle2 className="w-2.5 h-2.5" />
+                  <span>MoSPI & IMF WEO Live Active</span>
                 </span>
               )}
               {isAdditionalSector && (!collapsed || isMobile) && (

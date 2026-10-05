@@ -98,7 +98,7 @@ def parallel_a2a_execute_node(state: OrchestratorState) -> Dict[str, Any]:
         SectorEnum.REAL_ECONOMY.value: "Real Sector Macroeconomic Agent",
         SectorEnum.PRICES_INFLATION.value: "Prices & Inflation Sector Macroeconomic Agent",
         SectorEnum.MONETARY_BANKING.value: "Finance & Banking Sector Macroeconomic Agent",
-        SectorEnum.FISCAL.value: "Finance & Banking Sector Macroeconomic Agent",
+        SectorEnum.FISCAL.value: "Fiscal & Public Finance Sector Macroeconomic Agent",
         SectorEnum.EXTERNAL.value: "Finance & Banking Sector Macroeconomic Agent",
         SectorEnum.CAPITAL_MARKETS.value: "Capital Markets Macroeconomic Agent",
         SectorEnum.AGRICULTURE_RURAL.value: "Agriculture Agent",

@@ -32,6 +32,7 @@ def bootstrap_agent_registry() -> None:
         (["agriculture_sector.executor", "backend.agriculture_sector.executor", "agriculture_sector.agents.executor", "backend.agriculture_sector.agents.executor"], "AgricultureAgentExecutor"),
         (["labour_sector.agents.executor", "backend.labour_sector.agents.executor", "labour_sector.executor"], "LabourEmploymentAgentExecutor"),
         (["external_sector.agents.executor", "backend.external_sector.agents.executor", "external_sector.executor"], "ExternalSectorAgentExecutor"),
+        (["fiscal_sector.agents.executor", "backend.fiscal_sector.agents.executor", "fiscal_sector.executor"], "FiscalSectorAgentExecutor"),
     ]
 
     for candidates, cls_name in executors:

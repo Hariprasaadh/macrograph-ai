@@ -25,6 +25,9 @@ from real_sector.mcp_server import mcp_server as real_mcp
 from real_sector.api.app import app as real_app
 from finance_sector.mcp_server import mcp_server as finance_mcp
 from finance_sector.api.app import app as finance_app
+from fiscal_sector.mcp_server import mcp_server as fiscal_mcp
+from fiscal_sector.api.app import app as fiscal_app
+from fiscal_sector.agent import fiscal_agent_node, is_direct_fiscal_query
 from external_sector.mcp_server import mcp_server as external_mcp
 from capital_market_sector.mcp_server import mcp_server as capital_market_mcp
 from labour_sector.mcp_server import mcp_server as labour_mcp
@@ -61,8 +64,9 @@ app.add_middleware(
 # Mount implemented core sub-applications
 app.mount("/real-sector", real_app)
 app.mount("/finance-sector", finance_app)
+app.mount("/fiscal-sector", fiscal_app)
 
-# Ensure Real Sector DuckDB is initialised + seeded at import time
+# Ensure Real Sector and Fiscal Sector DuckDB are initialised + seeded at import time
 # (sub-app lifespans don't fire when mounted via app.mount)
 try:
     from real_sector import database as _real_db
@@ -78,6 +82,14 @@ try:
     logging.getLogger(__name__).info("Services sector DuckDB initialised.")
 except Exception as _e:
     logging.getLogger(__name__).warning("Services sector DB init skipped: %s", _e)
+
+# Ensure Fiscal Sector DuckDB is initialised + seeded at import time
+try:
+    from fiscal_sector import database as _fiscal_db
+    _fiscal_db.initialise_schema(seed_baseline=True)
+    logging.getLogger(__name__).info("Fiscal sector DuckDB initialised.")
+except Exception as _e:
+    logging.getLogger(__name__).warning("Fiscal sector DB init skipped: %s", _e)
 
 # Dynamically mount other sectors if available
 _optional_sectors = [
@@ -1110,6 +1122,52 @@ async def stream_chat(request: ChatMessageRequest):
             }
             yield f"data: {json.dumps(done_payload)}\n\n"
 
+        elif target == "fiscal_sector":
+            # Direct domain investigation of Fiscal & Public Finance sector
+            yield f"data: {json.dumps({'type': 'step', 'step': 1, 'agent': 'fiscal_sector', 'title': 'Targeting Fiscal & Public Finance Sector Agent', 'detail': 'Direct domain investigation of Union Budget, GST & Sovereign Debt.'})}\n\n"
+            await asyncio.sleep(0.15)
+
+            yield f"data: {json.dumps({'type': 'step', 'step': 2, 'agent': 'fiscal_sector', 'tool': 'get_union_fiscal_deficit', 'title': 'Invoking FastMCP Tool: get_union_fiscal_deficit', 'detail': 'Querying Union Budget receipts, capital expenditures & fiscal deficit (% of GDP)...'})}\n\n"
+            await asyncio.sleep(0.2)
+
+            yield f"data: {json.dumps({'type': 'step', 'step': 3, 'agent': 'fiscal_sector', 'tool': 'get_general_government_debt', 'title': 'Invoking FastMCP Tool: get_general_government_debt', 'detail': 'Querying IMF WEO sovereign gross debt & net lending/borrowing ratios (IND.GGXWDG_NGDP.A)...'})}\n\n"
+            await asyncio.sleep(0.2)
+
+            yield f"data: {json.dumps({'type': 'step', 'step': 4, 'agent': 'fiscal_sector', 'tool': 'get_gst_collections', 'title': 'Invoking FastMCP Tool: get_gst_collections', 'detail': 'Querying monthly gross GST revenues (CGST, SGST, IGST, Cess)...'})}\n\n"
+            await asyncio.sleep(0.2)
+
+            yield f"data: {json.dumps({'type': 'step', 'step': 5, 'agent': 'fiscal_sector', 'tool': 'get_mospi_product_taxes', 'title': 'Invoking FastMCP Tool: get_mospi_product_taxes', 'detail': 'Querying MoSPI eSankhyiki National Accounts (NAS) Net Taxes on Products...'})}\n\n"
+            await asyncio.sleep(0.2)
+
+            yield f"data: {json.dumps({'type': 'step', 'step': 6, 'agent': 'fiscal_sector', 'title': 'Executing LLM Econometric Reasoning', 'detail': 'Synthesizing fiscal consolidation, debt sustainability & tax buoyancy via Groq LLM...'})}\n\n"
+
+            from fiscal_sector.agent import fiscal_agent_node
+            node_result = await fiscal_agent_node({"query": msg})
+            analysis_text = node_result.get("fiscal_analysis", "")
+            raw_citations = node_result.get("citations", [])
+
+            words = analysis_text.split(" ")
+            chunk_size = 4
+            for i in range(0, len(words), chunk_size):
+                chunk = " ".join(words[i:i + chunk_size]) + " "
+                yield f"data: {json.dumps({'type': 'token', 'text': chunk})}\n\n"
+                await asyncio.sleep(0.03)
+
+            citations = [
+                c.model_dump() if hasattr(c, "model_dump") else c
+                for c in raw_citations
+            ]
+
+            done_payload = {
+                "type": "done",
+                "agent_routed": "Fiscal & Public Finance Sector Agent",
+                "full_report": analysis_text,
+                "citations": citations,
+                "observations": node_result.get("collected_observations", []),
+                "freshness": {"union_deficit": "live", "debt": "live", "gst": "live", "mospi": "live"},
+            }
+            yield f"data: {json.dumps(done_payload)}\n\n"
+
         elif target in _DIRECT_SECTOR_CHAT:
             sector_config = _DIRECT_SECTOR_CHAT[target]
             if target == "real_sector":
@@ -1239,6 +1297,19 @@ async def sync_chat(request: ChatMessageRequest) -> Dict[str, Any]:
             "data_context": d_context,
             "freshness": f_freshness,
             "citations": _build_finance_citations(d_context, f_freshness),
+        }
+    elif target == "fiscal_sector":
+        from fiscal_sector.agent import fiscal_agent_node
+        node_result = await fiscal_agent_node({"query": request.message})
+        raw_citations = node_result.get("citations", [])
+        citations = [c.model_dump() if hasattr(c, "model_dump") else c for c in raw_citations]
+        return {
+            "status": "completed",
+            "agent_routed": "Fiscal & Public Finance Sector Agent",
+            "full_report": node_result.get("fiscal_analysis", ""),
+            "citations": citations,
+            "observations": node_result.get("collected_observations", []),
+            "freshness": {"union_deficit": "live", "debt": "live", "gst": "live", "mospi": "live"},
         }
     elif target in _DIRECT_SECTOR_CHAT:
         return await _run_direct_sector_chat(target, request.message, parameters=request.parameters)

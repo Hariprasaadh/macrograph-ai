@@ -17,6 +17,7 @@ import {
   Sprout,
   Percent,
   Briefcase,
+  Receipt,
   type LucideIcon,
 } from 'lucide-react';
 import { ChatMessage, StreamStep } from '../types';
@@ -101,9 +102,30 @@ const DEFAULT_MESSAGES: Record<string, ChatMessage[]> = {
       ],
     },
   ],
+  fiscal_sector: [
+    {
+      id: 'welcome-fiscal',
+      role: 'assistant',
+      content: `### Fiscal & Public Finance Sector Specialist\n\nI am the dedicated **Fiscal Sector Agent** with verified access to the **Union Budget / CGA**, **Goods & Services Tax (GST) Council**, **MoSPI eSankhyiki FastMCP**, and **IMF World Economic Outlook (WEO)**.\n\n### Specialized Domain Scope:\n- 🏛️ **Union Budget & CGA Accounts**: Revenue Receipts, Capital Expenditure, Gross Fiscal Deficit (% of GDP), Revenue Deficit, Primary Deficit\n- 📊 **Monthly Gross GST Collections**: CGST, SGST, IGST, Compensation Cess, and YoY Growth\n- 🌐 **Sovereign Debt (IMF WEO)**: General Government Gross Debt-to-GDP, Net Lending/Borrowing % of GDP\n- 📈 **MoSPI National Accounts**: Net Taxes on Products (current & constant prices) & Govt Final Consumption (GFCE)\n- 🧮 **Statutory Calculators**: GST invoice breakups (CGST/SGST/IGST), GSTIN mod-36 validation, and FY 2026-27 tax regime comparison\n- 📡 **Real-Time MoF Intelligence**: PIB Ministry of Finance press releases via Tavily AI Search\n\n> 🛡️ **Strict Anti-Hallucination & Attribution Chain**\n> Every metric returned carries structured provenance with source authority, document reference, and observation period.\n\nAsk about India's fiscal deficit, GST trends, public debt, or try a suggested query!`,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      agentRouted: 'Fiscal & Public Finance Specialist',
+      citations: [
+        {
+          source_agent: 'fiscal_sector',
+          authority: 'Ministry of Finance & CGA / MoSPI / IMF',
+          table: 'Union Budget Statement 1, Monthly GST Press Releases, IMF WEO IND.GGXWDG_NGDP.A',
+          period: 'FY 2024-25 & Live Snapshots',
+          freshness: 'live',
+          retrieval_url: 'https://indiabudget.gov.in',
+        },
+      ],
+    },
+  ],
 };
 
 const SECTOR_WORKSPACE_DESCRIPTIONS: Record<string, string> = {
+  fiscal_sector:
+    'Queries Union Budget receipts & deficits, monthly gross GST collections, IMF WEO sovereign debt ratios, and MoSPI Net Product Taxes with cryptographic provenance.',
   agriculture_sector:
     'Analyzes crops, mandi prices, MSP, rainfall, agricultural inputs and schemes using Agriculture MCP tools. Every observation identifies its actual source; unavailable data is reported explicitly.',
   external_sector:
@@ -154,27 +176,30 @@ const NEW_SECTOR_DEFAULT_MESSAGES: Record<string, ChatMessage[]> = Object.fromEn
 );
 
 const AGENT_ICONS: Record<string, LucideIcon> = {
-  agriculture_sector: Sprout,
   orchestrator: Network,
   finance_sector: Landmark,
-  external_sector: Globe,
-  labour_sector: Users,
-  capital_market_sector: TrendingUp,
+  fiscal_sector: Receipt,
   monetary_sector: Coins,
   real_sector: Activity,
+  capital_market_sector: TrendingUp,
   prices_sector: Percent,
   services_sector: Briefcase,
+  external_sector: Globe,
+  agriculture_sector: Sprout,
+  labour_sector: Users,
 };
 
 const AGENT_SHORT_NAMES: Record<string, string> = {
-  agriculture_sector: 'Agriculture',
   orchestrator: 'Orchestrator',
-  finance_sector: 'Finance Agent',
-  external_sector: 'External',
-  labour_sector: 'Labour',
-  capital_market_sector: 'Capital',
-  monetary_sector: 'Monetary',
-  real_sector: 'Real Sector',
+  finance_sector: 'Finance & Banking',
+  fiscal_sector: 'Fiscal & Budget',
+  monetary_sector: 'Monetary Policy',
+  real_sector: 'Real Economy',
+  capital_market_sector: 'Capital Markets',
+  prices_sector: 'Prices & Inflation',
+  external_sector: 'External & Trade',
+  agriculture_sector: 'Agriculture',
+  labour_sector: 'Labour & Jobs',
   services_sector: 'Services',
 };
 
@@ -195,24 +220,61 @@ const PromptChip = memo(function PromptChip({ text, disabled, tone, onPick }: { 
   );
 });
 
-const AgentToggleButton = memo(function AgentToggleButton({ label, selected, tone, onClick, title }: { label: string; selected: boolean; tone: 'brand' | 'emerald'; onClick: () => void; title: string }) {
+const AgentToggleButton = memo(function AgentToggleButton({
+  label,
+  selected,
+  tone,
+  onClick,
+  title,
+  icon: Icon,
+  color,
+}: {
+  label: string;
+  selected: boolean;
+  tone: 'brand' | 'emerald' | 'pink';
+  onClick: () => void;
+  title: string;
+  icon?: LucideIcon;
+  color?: string;
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
       title={title}
       aria-pressed={selected}
-      className={`touch-44 px-3 py-2 rounded-lg font-medium transition-all flex items-center gap-1.5 whitespace-nowrap text-xs ${
-        selected ? (tone === 'brand' ? 'bg-brand-600 text-white shadow-sm' : 'bg-emerald-600 text-white shadow-sm') : 'text-slate-400 hover:text-white'
+      className={`shrink-0 px-3 py-1.5 rounded-xl font-medium transition-all flex items-center gap-1.5 whitespace-nowrap text-xs border select-none ${
+        selected
+          ? tone === 'brand'
+            ? 'bg-gradient-to-r from-brand-600 to-indigo-600 text-white shadow-glow-brand/50 border-brand-400/50'
+            : tone === 'pink'
+            ? 'bg-gradient-to-r from-pink-600 to-rose-600 text-white shadow-[0_0_15px_rgba(236,72,153,0.35)] border-pink-400/50'
+            : 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-glow-emerald/40 border-emerald-400/50'
+          : 'text-slate-400 hover:text-white hover:bg-white/5 border-transparent'
       }`}
     >
-      <span className={`w-1.5 h-1.5 rounded-full ${tone === 'brand' ? 'bg-brand-400' : 'bg-emerald-400'}`} aria-hidden="true" />
-      <span>{label}</span>
+      {Icon && (
+        <Icon
+          className="w-3.5 h-3.5 shrink-0"
+          style={{ color: selected ? '#ffffff' : color }}
+        />
+      )}
+      <span className="shrink-0">{label}</span>
+      {selected && (
+        <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse shrink-0 ml-0.5" />
+      )}
     </button>
   );
 });
 
 const SUGGESTED_PROMPTS: Record<string, { text: string }[]> = {
+  fiscal_sector: [
+    { text: 'What is India\'s Union fiscal deficit target for FY 2024-25 and capex budget?' },
+    { text: 'Show gross monthly GST revenue trends, buoyancy, and component breakup.' },
+    { text: 'Analyze India\'s General Government debt-to-GDP trajectory from IMF WEO.' },
+    { text: 'Compare income tax liabilities under the new vs. old regimes for FY 2026-27.' },
+    { text: 'What is the statutory GST breakdown for a ₹50,000 transaction at 18% slab?' },
+  ],
   agriculture_sector: [
     { text: 'How has wheat production changed?' },
     { text: 'Show historical rainfall in Mumbai for the last 7 days.' },
@@ -304,8 +366,9 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     SECTOR_AGENTS.find((agent) => agent.id === selectedAgentId) ||
     SECTOR_AGENTS.find((agent) => agent.id === 'orchestrator')!;
   const isFinance = selectedAgentId === 'finance_sector';
-  const isNewSector = Boolean(SECTOR_WORKSPACE_DESCRIPTIONS[selectedAgentId]);
-  const isOrchestrator = !isFinance && !isNewSector;
+  const isFiscal = selectedAgentId === 'fiscal_sector';
+  const isNewSector = Boolean(SECTOR_WORKSPACE_DESCRIPTIONS[selectedAgentId]) && !isFinance && !isFiscal;
+  const isOrchestrator = !isFinance && !isFiscal && !isNewSector;
   const AgentIcon = AGENT_ICONS[selectedAgentId] || Network;
   const currentMessages = messagesByAgent[selectedAgentId] || [];
   const currentPrompts = SUGGESTED_PROMPTS[selectedAgentId] || SUGGESTED_PROMPTS.orchestrator;
@@ -507,15 +570,17 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       <div className="h-16 px-6 border-b border-white/5 bg-slate-950/80 backdrop-blur-xl flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
           <div
-            className={`w-9 h-9 rounded-xl flex items-center justify-center font-mono font-bold text-xs ${
+            className={`w-9 h-9 rounded-xl flex items-center justify-center font-mono font-bold text-xs shrink-0 ${
               isFinance
                 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-glow-emerald/20'
+                : isFiscal
+                ? 'bg-pink-500/20 text-pink-400 border border-pink-500/30 shadow-[0_0_15px_rgba(236,72,153,0.3)]'
                 : isOrchestrator
                 ? 'bg-brand-500/20 text-brand-400 border border-brand-500/30 shadow-glow-brand/20'
                 : ''
             }`}
             style={
-              isNewSector
+              !isFinance && !isFiscal && !isOrchestrator
                 ? {
                     backgroundColor: `${selectedAgent.color}20`,
                     color: selectedAgent.color,
@@ -524,47 +589,46 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 : undefined
             }
           >
-            {isFinance ? 'FN' : isOrchestrator ? 'OR' : <AgentIcon className="w-4 h-4" />}
+            {isFinance ? 'FN' : isFiscal ? 'FI' : isOrchestrator ? 'OR' : <AgentIcon className="w-4 h-4" />}
           </div>
 
-          <div>
+          <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <span className="font-semibold text-sm text-white">
+              <span className="font-semibold text-sm text-white truncate">
                 {isFinance
                   ? 'Finance & Banking Sector Agent'
+                  : isFiscal
+                  ? 'Fiscal & Public Finance Sector Agent'
                   : isOrchestrator
                   ? 'Macrograph Orchestrator'
                   : `${selectedAgent.name} Specialist`}
               </span>
               <span
-                className={`text-[10px] font-mono uppercase px-2 py-0.5 rounded-full font-medium ${
+                className={`text-[10px] font-mono uppercase px-2 py-0.5 rounded-full font-medium whitespace-nowrap shrink-0 ${
                   isFinance
                     ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                    : isFiscal
+                    ? 'bg-pink-500/10 text-pink-300 border border-pink-500/20'
                     : isOrchestrator
                     ? 'bg-brand-500/10 text-brand-300 border border-brand-500/20'
-                    : ''
+                    : 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20'
                 }`}
-                style={
-                  isNewSector
-                    ? {
-                        backgroundColor: `${selectedAgent.color}20`,
-                        color: selectedAgent.color,
-                        border: `1px solid ${selectedAgent.color}40`,
-                      }
-                    : undefined
-                }
               >
                 {isFinance
                   ? 'Direct Domain Mode (SCBs Only)'
+                  : isFiscal
+                  ? 'Direct Domain Mode (Budget & Debt)'
                   : isOrchestrator
                   ? 'Multi-Agent Routing (All 10 Sectors)'
                   : 'Direct Domain Mode'}
               </span>
             </div>
-            <div className="text-[11px] text-slate-400 flex items-center gap-2">
-              <span>
+            <div className="text-[11px] text-slate-400 flex items-center gap-2 truncate">
+              <span className="truncate max-w-sm xl:max-w-md">
                 {isFinance
                   ? 'Data: RBI DBIE Tables r539, r330, r531, r689 • Scheduled Commercial Banks'
+                  : isFiscal
+                  ? 'Data: MoSPI eSankhyiki • IMF WEO SDMX • Union Budget CGA • GST Council'
                   : isOrchestrator
                   ? 'A2A Protocol Coordination • Cross-Sector Synthesis'
                   : isNewSector
@@ -572,40 +636,34 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                   : selectedAgent.domain}
               </span>
               <span>•</span>
-              {isFinance ? (
-                <span className="text-emerald-400 flex items-center gap-1 font-mono">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  Live Ingested
-                </span>
-              ) : isOrchestrator ? (
-                <span className="text-emerald-400 flex items-center gap-1 font-mono">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  Live Ingested
-                </span>
-              ) : isNewSector ? (
-                <span className="text-emerald-400 flex items-center gap-1 font-mono whitespace-nowrap">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                  Freshness per dataset
-                </span>
-              ) : (
-                <span className="font-mono">Availability varies</span>
-              )}
+              <span className="text-emerald-400 flex items-center gap-1 font-mono whitespace-nowrap shrink-0">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                Live Ingested
+              </span>
             </div>
           </div>
         </div>
 
-        {/* Quick Agent Mode Toggle — segmented switcher look, same callback */}
-        <div role="group" aria-label="Switch active agent" className="flex items-center gap-1 bg-slate-950/90 p-1.5 rounded-2xl border border-white/10 text-xs max-w-[54%] overflow-x-auto shadow-inner">
+        {/* Quick Agent Mode Toggle — segmented switcher with shrink-0 buttons and crisp pills */}
+        <div
+          role="group"
+          aria-label="Switch active agent"
+          className="flex items-center gap-1.5 bg-slate-950/90 p-1.5 rounded-2xl border border-white/10 text-xs max-w-[55%] overflow-x-auto shadow-inner select-none"
+        >
           {SECTOR_AGENTS.filter((agent) => agent.status === 'active').map((agent) => {
             const isSelected = selectedAgentId === agent.id;
             const isOrchestratorAgent = agent.id === 'orchestrator';
+            const isFiscalAgent = agent.id === 'fiscal_sector';
+            const Icon = AGENT_ICONS[agent.id] || Network;
             return (
               <AgentToggleButton
                 key={agent.id}
                 label={AGENT_SHORT_NAMES[agent.id] || agent.name}
                 title={agent.name}
                 selected={isSelected}
-                tone={isOrchestratorAgent ? 'brand' : 'emerald'}
+                icon={Icon}
+                color={agent.color}
+                tone={isOrchestratorAgent ? 'brand' : isFiscalAgent ? 'pink' : 'emerald'}
                 onClick={() => onSelectAgent(agent.id)}
               />
             );
@@ -627,12 +685,16 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 text-xs font-mono font-bold mt-1 ${
                   message.agentRouted?.includes('Finance')
                     ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                    : message.agentRouted?.includes('Fiscal')
+                    ? 'bg-pink-500/20 text-pink-400 border border-pink-500/30'
                     : isOrchestrator
                     ? 'bg-brand-500/20 text-brand-400 border border-brand-500/30'
                     : ''
                 }`}
                 style={
-                  isNewSector
+                  !message.agentRouted?.includes('Finance') &&
+                  !message.agentRouted?.includes('Fiscal') &&
+                  !isOrchestrator
                     ? {
                         backgroundColor: `${selectedAgent.color}20`,
                         color: selectedAgent.color,
@@ -643,6 +705,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
               >
                 {message.agentRouted?.includes('Finance')
                   ? 'FN'
+                  : message.agentRouted?.includes('Fiscal')
+                  ? 'FI'
                   : isOrchestrator
                   ? 'OR'
                   : <AgentIcon className="w-4 h-4" />}
@@ -970,12 +1034,16 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             placeholder={
               isFinance
                 ? 'Ask Finance Agent strictly about Scheduled Commercial Banks, NPAs, credit growth, rates...'
+                : isFiscal
+                ? 'Ask Fiscal Agent about Union Budget deficits, GST collections, IMF sovereign debt, tax calculation...'
                 : isOrchestrator
                 ? 'Ask Orchestrator any macroeconomic question (GDP, inflation, policy transmission, cross-sector shocks)...'
                 : `Ask ${selectedAgent.name} about ${selectedAgent.domain.toLowerCase()}...`
             }
             className={`w-full pl-5 pr-28 py-3.5 bg-surface-elevated/80 border border-white/10 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 transition-all font-sans disabled:opacity-50 ${
-              isNewSector
+              isFiscal
+                ? 'focus:ring-pink-500/50 focus:border-pink-500/50'
+                : isNewSector
                 ? 'focus:ring-emerald-500/50 focus:border-emerald-500/50'
                 : 'focus:ring-brand-500/50 focus:border-brand-500/50'
             }`}
@@ -985,9 +1053,11 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             type="submit"
             aria-label="Send message"
             disabled={!input.trim() || isGenerating}
-            className={`touch-44 absolute right-2 px-4 rounded-lg text-white text-xs font-semibold shadow-glow-brand transition-all flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed ${
+            className={`touch-44 absolute right-2 px-4 rounded-lg text-white text-xs font-semibold transition-all flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed ${
               isFinance
                 ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-glow-emerald'
+                : isFiscal
+                ? 'bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 shadow-[0_0_20px_rgba(236,72,153,0.35)]'
                 : isOrchestrator
                 ? 'bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 shadow-glow-brand'
                 : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-glow-emerald'
@@ -1002,6 +1072,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           <span>
             {isFinance
               ? 'Routing: Direct to Finance Sector (RBI DBIE) • Domain Boundary Enforced'
+              : isFiscal
+              ? 'Routing: Direct to Fiscal Sector (Union Budget, MoSPI NAS, IMF WEO, GST Council)'
               : isOrchestrator
               ? 'Routing: LangGraph A2A Multi-Agent Graph (All 10 Sectors)'
               : `Direct ${selectedAgent.name} workspace • Source and freshness metadata per dataset`}
