@@ -16,6 +16,7 @@ import {
   Activity,
   Sprout,
   Percent,
+  Briefcase,
   type LucideIcon,
 } from 'lucide-react';
 import { ChatMessage, StreamStep } from '../types';
@@ -82,6 +83,24 @@ const DEFAULT_MESSAGES: Record<string, ChatMessage[]> = {
       ],
     },
   ],
+  services_sector: [
+    {
+      id: 'welcome-services',
+      role: 'assistant',
+      content: `### Services Sector Specialist\n\nI am the dedicated **Services Sector Agent** with direct access to the official **MoSPI e-Sankhyiki MCP** (https://mcp.mospi.gov.in/) and DuckDB stores.\n\n### Specialized Domain Scope (Services Production & Activity):\n- **ISP Growth**: Monthly Index of Service Production, General index + 19 sub-sectors — IT & computer services, telecom, trade, transport (Base 2024-25 = 100)\n- **Services GVA**: Structural Output & GVA from NAS Statements 8.9–8.14 (trade & hotels, transport, communication, finance, real estate)\n- **PMI Sentiment**: Services PMI headline activity, new orders, input costs & employment (S&P Global / HSBC)\n- **Volumes**: Aviation passengers, railway freight, port cargo & telecom subscriptions\n\n> ⚠️ **Strict Domain Boundary Notice**\n> I strictly handle queries regarding **India's services production and activity**. Monthly ISP is a high-frequency measure; NAS GVA is the structural annual measure. If you have queries on other sectors (e.g. GDP, Inflation, Banking, Forex, or Fiscal Deficits), please switch to the **Macrograph Orchestrator**.\n\nAsk a services question below or choose a suggested prompt!`,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      agentRouted: 'Services Sector Specialist',
+      citations: [
+        {
+          source_agent: 'services_sector',
+          authority: 'National Statistical Office (NSO), MoSPI',
+          table: 'mospi.isp_monthly / mospi.nas_statement_8_12',
+          period: 'Live MoSPI Feeds',
+          freshness: 'live & cached',
+        },
+      ],
+    },
+  ],
 };
 
 const SECTOR_WORKSPACE_DESCRIPTIONS: Record<string, string> = {
@@ -99,6 +118,8 @@ const SECTOR_WORKSPACE_DESCRIPTIONS: Record<string, string> = {
     'Fetches MoSPI IIP (sectoral & use-based), DPIIT Eight Core Industries index, and RBI DBIE manufacturing GVA data with per-observation provenance.',
   prices_sector:
     'Fetches live CPI and WPI observations from the MoSPI e-Sankhyiki MCP, with IMF data available as a clearly labeled secondary validation source.',
+  services_sector:
+    'Uses the official MoSPI e-Sankhyiki MCP (ISP monthly production, NAS 8.9–8.14 structural GVA, NSS80 telecom volumes) plus PMI sentiment and Nifty IT market context.',
 };
 
 const SECTOR_WELCOME_MESSAGES: Record<string, string> = Object.fromEntries(
@@ -142,6 +163,7 @@ const AGENT_ICONS: Record<string, LucideIcon> = {
   monetary_sector: Coins,
   real_sector: Activity,
   prices_sector: Percent,
+  services_sector: Briefcase,
 };
 
 const AGENT_SHORT_NAMES: Record<string, string> = {
@@ -153,6 +175,7 @@ const AGENT_SHORT_NAMES: Record<string, string> = {
   capital_market_sector: 'Capital',
   monetary_sector: 'Monetary',
   real_sector: 'Real Sector',
+  services_sector: 'Services',
 };
 
 // UI-only memoized chips to avoid re-render churn during streaming (no data logic)
@@ -253,6 +276,12 @@ const SUGGESTED_PROMPTS: Record<string, { text: string }[]> = {
     { text: "What is India's latest CPI inflation from MoSPI?" },
     { text: "Show India's CPI food, rural, and urban inflation." },
     { text: "What is India's latest WPI inflation?" },
+  ],
+  services_sector: [
+    { text: "How is India's IT services sector performing?" },
+    { text: 'What is the latest ISP General index growth for services?' },
+    { text: 'What is the current Services PMI reading and new orders trend?' },
+    { text: 'Compare structural services GVA (NAS) with high-frequency ISP momentum.' },
   ],
 };
 

@@ -71,6 +71,14 @@ try:
 except Exception as _e:
     logging.getLogger(__name__).warning("Real sector DB init skipped: %s", _e)
 
+# Ensure Services Sector DuckDB is initialised + seeded at import time
+try:
+    from services_sector import database as _services_db
+    _services_db.initialise_schema(seed_baseline=True)
+    logging.getLogger(__name__).info("Services sector DuckDB initialised.")
+except Exception as _e:
+    logging.getLogger(__name__).warning("Services sector DB init skipped: %s", _e)
+
 # Dynamically mount other sectors if available
 _optional_sectors = [
     ("capital_market_sector.api.app", "app", "/capital-markets"),
@@ -79,6 +87,7 @@ _optional_sectors = [
     ("external_sector.api.app", "app", "/external-sector"),
     ("prices_sector.api.app", "app", "/prices-sector"),
     ("monetary_sector.api.app", "app", "/monetary-sector"),
+    ("services_sector.api.app", "app", "/services-sector"),
 ]
 for _mod_name, _app_attr, _prefix in _optional_sectors:
     try:
@@ -123,6 +132,7 @@ def root() -> Dict[str, Any]:
         "sectors": {
             "real_sector": "/real-sector",
             "finance_sector": "/finance-sector",
+            "services_sector": "/services-sector",
             "capital_markets": "/capital-markets",
             "labour_sector": "/labour-sector",
             "external_sector": "/external-sector",
@@ -253,6 +263,12 @@ from real_sector.agent import (
     real_agent_node,
 )
 from real_sector.config import real_settings
+from services_sector.agent import (
+    _SERVICE_KEYWORDS as _SERVICES_SERVICE_KEYWORDS,
+    _select_services_deterministically as _select_services_services,
+    services_agent_node,
+)
+from services_sector.config import services_settings
 
 
 class ChatMessageRequest(BaseModel):
@@ -261,7 +277,8 @@ class ChatMessageRequest(BaseModel):
         default="orchestrator",
         description=(
             "'orchestrator', 'finance_sector', 'external_sector', 'labour_sector', "
-            "'capital_market_sector', 'monetary_sector', 'agriculture_sector', or 'real_sector'"
+            "'capital_market_sector', 'monetary_sector', 'agriculture_sector', "
+            "'real_sector' or 'services_sector'"
         ),
     )
     scenario_shock: Optional[Dict[str, Any]] = None
@@ -503,6 +520,46 @@ _DIRECT_SECTOR_CHAT: dict[str, dict[str, Any]] = {
             ("manufacturing_gva", "Manufacturing GVA", [
                 ("Real GVA YoY", "manufacturing_gva_real_yoy_pct", "%"),
                 ("Nominal GVA (₹ Cr)", "manufacturing_gva_cr", " Cr"),
+            ]),
+        ],
+    },
+    "services_sector": {
+        "node": services_agent_node,
+        "service_keywords": _SERVICES_SERVICE_KEYWORDS,
+        "api_key": services_settings.SERV_EXT_KEY,
+        "model": services_settings.SERVICES_LLM_MODEL,
+        "name": "Services Sector",
+        "data_key": "services_sector_data",
+        "analysis_key": "services_sector_analysis",
+        "citations_key": "services_sector_citations",
+        "errors_key": "services_sector_errors",
+        "freshness_key": "services_sector_freshness",
+        "sections": [
+            ("isp_general", "ISP General Index", [
+                ("Index (Base 2024-25 = 100)", "isp_index", ""),
+                ("Year-over-year growth", "isp_yoy_pct", "%"),
+                ("Month-on-month growth", "isp_mom_pct", "%"),
+            ]),
+            ("isp_it_computer", "IT & Computer Services (ISP)", [
+                ("Index (Base 2024-25 = 100)", "isp_index", ""),
+                ("Year-over-year growth", "isp_yoy_pct", "%"),
+                ("Month-on-month growth", "isp_mom_pct", "%"),
+            ]),
+            ("services_gva_structural", "Services GVA (NAS Structural)", [
+                ("NAS statement", "nas_statement", ""),
+                ("Segment", "segment", ""),
+                ("Real GVA year-over-year growth", "gva_yoy_pct", "%"),
+            ]),
+            ("services_pmi", "Services PMI Sentiment", [
+                ("Headline PMI (50 = no change)", "headline_pmi", ""),
+                ("New orders", "new_orders_idx", ""),
+                ("Input costs", "input_costs_idx", ""),
+                ("Employment", "employment_idx", ""),
+            ]),
+            ("transport_freight_telecom", "Transport & Volumes", [
+                ("Indicator", "indicator", ""),
+                ("Observed value", "value", ""),
+                ("Year-over-year change", "yoy_pct", "%"),
             ]),
         ],
     },
@@ -1057,6 +1114,9 @@ async def stream_chat(request: ChatMessageRequest):
             sector_config = _DIRECT_SECTOR_CHAT[target]
             if target == "real_sector":
                 selected_services = _select_services_deterministically(msg)
+                selection_error = None
+            elif target == "services_sector":
+                selected_services = _select_services_services(msg)
                 selection_error = None
             elif target == "agriculture_sector":
                 selected_services = select_agriculture_tools(msg)

@@ -28,6 +28,11 @@ from real_sector.agent import (
     real_agent_node,
 )
 from real_sector.config import real_settings
+from services_sector.agent import (
+    _SERVICE_KEYWORDS as _SERVICES_SERVICE_KEYWORDS,
+    services_agent_node,
+)
+from services_sector.config import services_settings
 
 _DIRECT_SECTOR_CHAT: dict[str, dict[str, Any]] = {
     "external_sector": {
@@ -245,6 +250,46 @@ _DIRECT_SECTOR_CHAT: dict[str, dict[str, Any]] = {
             ]),
             ("obicus_capacity", "Capacity Utilisation (OBICUS)", [
                 ("Capacity Utilisation Ratio", "capacity_utilisation_pct", "%"),
+            ]),
+        ],
+    },
+    "services_sector": {
+        "node": services_agent_node,
+        "service_keywords": _SERVICES_SERVICE_KEYWORDS,
+        "api_key": services_settings.SERV_EXT_KEY,
+        "model": services_settings.SERVICES_LLM_MODEL,
+        "name": "Services Sector",
+        "data_key": "services_sector_data",
+        "analysis_key": "services_sector_analysis",
+        "citations_key": "services_sector_citations",
+        "errors_key": "services_sector_errors",
+        "freshness_key": "services_sector_freshness",
+        "sections": [
+            ("isp_general", "ISP General Index", [
+                ("Index (Base 2024-25 = 100)", "isp_index", ""),
+                ("Year-over-year growth", "isp_yoy_pct", "%"),
+                ("Month-on-month growth", "isp_mom_pct", "%"),
+            ]),
+            ("isp_it_computer", "IT & Computer Services (ISP)", [
+                ("Index (Base 2024-25 = 100)", "isp_index", ""),
+                ("Year-over-year growth", "isp_yoy_pct", "%"),
+                ("Month-on-month growth", "isp_mom_pct", "%"),
+            ]),
+            ("services_gva_structural", "Services GVA (NAS Structural)", [
+                ("NAS statement", "nas_statement", ""),
+                ("Segment", "segment", ""),
+                ("Real GVA year-over-year growth", "gva_yoy_pct", "%"),
+            ]),
+            ("services_pmi", "Services PMI Sentiment", [
+                ("Headline PMI (50 = no change)", "headline_pmi", ""),
+                ("New orders", "new_orders_idx", ""),
+                ("Input costs", "input_costs_idx", ""),
+                ("Employment", "employment_idx", ""),
+            ]),
+            ("transport_freight_telecom", "Transport & Volumes", [
+                ("Indicator", "indicator", ""),
+                ("Observed value", "value", ""),
+                ("Year-over-year change", "yoy_pct", "%"),
             ]),
         ],
     },
