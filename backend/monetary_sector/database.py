@@ -30,6 +30,27 @@ _ALLOWED_TABLES: frozenset[str] = frozenset({
     "fetch_log",
 })
 
+# Complete static statements per table: no SQL text is ever assembled from input.
+_COUNT_SQL: dict[str, str] = {
+    "policy_rates": "SELECT COUNT(*) FROM policy_rates",
+    "money_supply": "SELECT COUNT(*) FROM money_supply",
+    "system_liquidity": "SELECT COUNT(*) FROM system_liquidity",
+    "monetary_stance": "SELECT COUNT(*) FROM monetary_stance",
+}
+_DELETE_SQL: dict[str, str] = {
+    "policy_rates": "DELETE FROM policy_rates",
+    "money_supply": "DELETE FROM money_supply",
+    "system_liquidity": "DELETE FROM system_liquidity",
+    "monetary_stance": "DELETE FROM monetary_stance",
+}
+_LATEST_ROWS_SQL: dict[str, str] = {
+    "policy_rates": "SELECT * FROM policy_rates ORDER BY fetched_at DESC LIMIT ?",
+    "money_supply": "SELECT * FROM money_supply ORDER BY fetched_at DESC LIMIT ?",
+    "system_liquidity": "SELECT * FROM system_liquidity ORDER BY fetched_at DESC LIMIT ?",
+    "monetary_stance": "SELECT * FROM monetary_stance ORDER BY fetched_at DESC LIMIT ?",
+    "fetch_log": "SELECT * FROM fetch_log ORDER BY fetched_at DESC LIMIT ?",
+}
+
 
 def _ensure_data_dir() -> None:
     _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -146,8 +167,8 @@ def initialise_schema(seed_baseline: bool = False) -> None:
         ]:
             try:
                 con.execute(migration)
-            except Exception:
-                pass
+            except duckdb.Error as exc:
+                logger.warning("Monetary schema migration skipped (%s): %s", migration, exc)
     logger.info("Monetary sector DuckDB schema initialised at %s", _DB_PATH)
 
 
@@ -189,17 +210,21 @@ def upsert_rows(table: str, rows: list[dict[str, Any]]) -> int:
     update_cols = [c for c in columns if c not in _unique_set]
     set_clause = ", ".join(f"{c} = excluded.{c}" for c in update_cols)
 
+    sql = (
+        f"INSERT INTO {table} ({col_list})"
+        f" VALUES ({placeholders})"
+        f" ON CONFLICT ({conflict_target}) DO UPDATE SET {set_clause}"
+    )
+    params = [[row[c] for c in columns] for row in serialised]
+
     with get_connection() as con:
-        for row in serialised:
-            values = [row[c] for c in columns]
-            con.execute(
-                f"""
-                INSERT INTO {table} ({col_list})
-                VALUES ({placeholders})
-                ON CONFLICT ({conflict_target}) DO UPDATE SET {set_clause}
-                """,
-                values,
-            )
+        con.execute("BEGIN TRANSACTION")
+        try:
+            con.executemany(sql, params)
+            con.execute("COMMIT")
+        except Exception:
+            con.execute("ROLLBACK")
+            raise
 
     return len(serialised)
 
@@ -238,9 +263,9 @@ def clear_cached_tables(tables: list[str] | None = None) -> dict[str, int]:
     cleared: dict[str, int] = {}
     with get_connection() as con:
         for table in targets:
-            count = con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
+            count = con.execute(_COUNT_SQL[table]).fetchone()
             deleted = int(count[0]) if count else 0
-            con.execute(f"DELETE FROM {table}")
+            con.execute(_DELETE_SQL[table])
             cleared[table] = deleted
         con.commit()
     log_fetch("clear_monetary_cache", "cache_cleared", rows_written=sum(cleared.values()))
@@ -252,10 +277,7 @@ def query_latest_rows(table: str, limit: int) -> list[dict[str, Any]]:
         raise ValueError(f"Invalid table: {table!r}")
 
     with get_connection() as con:
-        result = con.execute(
-            f"SELECT * FROM {table} ORDER BY fetched_at DESC LIMIT ?",
-            [limit],
-        ).fetchall()
+        result = con.execute(_LATEST_ROWS_SQL[table], [limit]).fetchall()
         columns = [desc[0] for desc in con.description]
 
     rows = []

@@ -34,14 +34,32 @@ class PlatformSettings(BaseSettings):
 
     # Model-Agnostic LLM Configuration
     MODEL_PROVIDER: str = os.getenv("MODEL_PROVIDER", "groq")
-    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
+    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY") or os.getenv("ORCH_KEY", "")
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     
-    FAST_MODEL: str = os.getenv("FAST_MODEL", "llama-3.1-8b-instant")
-    REASONING_MODEL: str = os.getenv("REASONING_MODEL", "llama-3.3-70b-versatile")
+    FAST_MODEL: str = os.getenv("FAST_MODEL", "openai/gpt-oss-20b")
+    REASONING_MODEL: str = os.getenv("REASONING_MODEL", "openai/gpt-oss-120b")
     LLM_TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", "0.1"))
     LLM_MAX_RETRIES: int = int(os.getenv("LLM_MAX_RETRIES", "3"))
     LLM_TIMEOUT: int = int(os.getenv("LLM_TIMEOUT", "30"))
+
+    # Browser origins allowed to call the API (the Vite dev proxy is same-origin and needs none).
+    CORS_ORIGINS: list[str] = Field(default=["http://localhost:5173", "http://127.0.0.1:5173"])
+
+    # A2A protocol guards and transport defaults
+    A2A_MAX_DEPTH: int = Field(default=5, ge=1, le=20)
+    A2A_MAX_HOPS: int = Field(default=25, ge=1, le=500)
+    A2A_REQUEST_TIMEOUT: float = Field(default=90.0, gt=0)
+    A2A_PEER_TIMEOUT: float = Field(default=25.0, gt=0)
+    A2A_MAX_RETRIES: int = Field(default=1, ge=0, le=5)
+    A2A_TRACE_MAX_CONVERSATIONS: int = Field(default=500, ge=1)
+    A2A_LLM_ROUTING: bool = True
+    A2A_API_KEY: SecretStr = SecretStr("")
+    # POST /a2a/v1/requests runs sector analyses on demand; with no key set it is refused unless this is true.
+    A2A_ALLOW_ANONYMOUS_REQUESTS: bool = False
+    A2A_DEFAULT_AGENTS: list[str] = Field(
+        default_factory=lambda: ["real_sector", "prices_sector", "monetary_sector"]
+    )
 
     # Persistent Knowledge Graph (Neo4j)
     NEO4J_URI: str = os.getenv("NEO4J_URI", "bolt://localhost:7687")

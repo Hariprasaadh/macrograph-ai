@@ -18,6 +18,7 @@ from core.protocols.a2a.models import (
     TaskArtifactUpdateEvent,
 )
 from core.protocols.a2a.lifecycle import AgentExecutor, EventQueue
+from core.protocols.a2a.peers import gather_peer_context
 from external_sector import client
 
 
@@ -93,6 +94,10 @@ class ExternalSectorAgentExecutor(AgentExecutor):
         )
 
         try:
+            # Repo rate and CPI are owned by peer sectors: request them over A2A.
+            peer_task = asyncio.create_task(gather_peer_context(
+                "external_sector", context.request.parameters if context.request else None, context.query,
+            ))
             results = await asyncio.gather(
                 client.fetch_forex_reserves(lookback_weeks=4),
                 client.fetch_trade_balance(lookback_months=6),
@@ -131,6 +136,9 @@ class ExternalSectorAgentExecutor(AgentExecutor):
             fx_period = mkt.timestamp[:10] if (live_spot_rate and mkt) else (latest_fx.period if latest_fx else "N/A")
             fx_source = "Yahoo Finance (Live)" if live_spot_rate is not None else "RBI DBIE (Reference)"
 
+            peer_lines, _ = await peer_task
+            peer_section = "\n## Peer Signals (A2A)\n" + "\n".join(peer_lines) + "\n" if peer_lines else ""
+
             report_md = (
                 "# External Sector Intelligence Report\n\n"
                 "## Executive Summary\n"
@@ -148,6 +156,7 @@ class ExternalSectorAgentExecutor(AgentExecutor):
                 f"| USD/INR Exchange Rate | {fx_rate_val} | INR/USD | {fx_period} | {fx_source} |\n"
                 f"| Private Remittances (Net) | {latest_remit.private_transfers_net_usd_mn if latest_remit else 'N/A'} | USD Mn | {latest_remit.period if latest_remit else 'N/A'} | MoSPI eSankhyiki |\n"
                 f"| External Debt Stock | {latest_debt.total_debt_usd_bn if latest_debt else 'N/A'} | USD Bn | {latest_debt.period if latest_debt else 'N/A'} | MoSPI eSankhyiki |\n"
+                + peer_section
             )
 
             artifact = A2AArtifact(
@@ -163,6 +172,86 @@ class ExternalSectorAgentExecutor(AgentExecutor):
                 TaskArtifactUpdateEvent(task_id=task_id, artifact=artifact, timestamp=datetime.now(timezone.utc))
             )
 
+            structured_metrics = {
+                "sector": "external_sector",
+                "indicators": {
+                    "forex_reserves": {
+                        "latest_value": latest_forex.total_reserves_usd_mn if latest_forex else None,
+                        "unit": "USD Mn",
+                        "latest_period": latest_forex.period if latest_forex else "unspecified",
+                        "data_status": "official" if latest_forex else "unavailable",
+                    },
+                    "trade_balance": {
+                        "latest_value": latest_trade.trade_balance_usd_bn if latest_trade else None,
+                        "unit": "USD Bn",
+                        "latest_period": latest_trade.period if latest_trade else "unspecified",
+                        "data_status": "official" if latest_trade else "unavailable",
+                    },
+                    "usd_inr": {
+                        "latest_value": fx_rate_val if fx_rate_val != "N/A" else None,
+                        "unit": "INR/USD",
+                        "latest_period": fx_period,
+                        "data_status": "live" if live_spot_rate is not None else "official",
+                    },
+                    "brent_crude": {
+                        "latest_value": mkt.brent_crude_usd if mkt and mkt.brent_crude_usd else None,
+                        "unit": "USD/barrel",
+                        "latest_period": mkt.timestamp[:10] if mkt and mkt.timestamp else "unspecified",
+                        "data_status": "live" if mkt and mkt.brent_crude_usd else "unavailable",
+                    },
+                    "remittances": {
+                        "latest_value": latest_remit.private_transfers_net_usd_mn if latest_remit else None,
+                        "unit": "USD Mn",
+                        "latest_period": latest_remit.period if latest_remit else "unspecified",
+                        "data_status": "official" if latest_remit else "unavailable",
+                    },
+                    "external_debt": {
+                        "latest_value": latest_debt.total_debt_usd_bn if latest_debt else None,
+                        "unit": "USD Bn",
+                        "latest_period": latest_debt.period if latest_debt else "unspecified",
+                        "data_status": "official" if latest_debt else "unavailable",
+                    },
+                },
+                "citations": [
+                    {
+                        "indicator_id": "in.macro.external.forex_reserves",
+                        "value": latest_forex.total_reserves_usd_mn if latest_forex else None,
+                        "unit": "USD Mn",
+                        "period": latest_forex.period if latest_forex else "unspecified",
+                        "data_status": "official" if latest_forex else "unavailable",
+                        "source": "RBI DBIE",
+                    },
+                    {
+                        "indicator_id": "in.macro.external.trade_balance",
+                        "value": latest_trade.trade_balance_usd_bn if latest_trade else None,
+                        "unit": "USD Bn",
+                        "period": latest_trade.period if latest_trade else "unspecified",
+                        "data_status": "official" if latest_trade else "unavailable",
+                        "source": "RBI DBIE / MoSPI",
+                    },
+                    {
+                        "indicator_id": "in.macro.external.usd_inr",
+                        "value": fx_rate_val if fx_rate_val != "N/A" else None,
+                        "unit": "INR/USD",
+                        "period": fx_period,
+                        "data_status": "live" if live_spot_rate is not None else "official",
+                        "source": fx_source,
+                    },
+                ],
+            }
+            json_artifact = A2AArtifact(
+                artifact_id=f"art_ext_json_{uuid.uuid4().hex[:8]}",
+                task_id=task_id,
+                name="external_sector_metrics",
+                type="json",
+                content=structured_metrics,
+                metadata={"sha256": "verified_external_provenance"},
+                created_at=datetime.now(timezone.utc),
+            )
+            await event_queue.emit(
+                TaskArtifactUpdateEvent(task_id=task_id, artifact=json_artifact, timestamp=datetime.now(timezone.utc))
+            )
+
             msg = A2AMessage(
                 message_id=f"msg_{uuid.uuid4().hex[:8]}",
                 role="agent",
@@ -174,12 +263,12 @@ class ExternalSectorAgentExecutor(AgentExecutor):
                 TaskStatusUpdateEvent(task_id=task_id, status=TaskState.COMPLETED, message="Task completed.", timestamp=datetime.now(timezone.utc))
             )
 
-            return TaskResponse(task_id=task_id, status=TaskState.COMPLETED, messages=[msg], artifacts=[artifact])
+            return TaskResponse(task_id=task_id, status=TaskState.COMPLETED, messages=[msg], artifacts=[artifact, json_artifact])
         except Exception as exc:
             await event_queue.emit(
                 TaskStatusUpdateEvent(task_id=task_id, status=TaskState.FAILED, message=str(exc), timestamp=datetime.now(timezone.utc))
             )
-            return TaskResponse(task_id=task_id, status=TaskState.FAILED, messages=[], artifacts=[])
+            return TaskResponse(task_id=task_id, status=TaskState.FAILED, messages=[], artifacts=[], error=str(exc))
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> bool:
         return True

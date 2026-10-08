@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from external_sector import database as db
@@ -23,6 +24,8 @@ class ExternalDataUnavailableError(Exception):
     pass
 
 
+logger = logging.getLogger(__name__)
+
 def prepare_cached_citation(citation_raw: Any, default_tool: str = "database_cache") -> Citation:
     """Normalize raw citation object/string from DuckDB."""
     if isinstance(citation_raw, dict):
@@ -39,8 +42,8 @@ def prepare_cached_citation(citation_raw: Any, default_tool: str = "database_cac
         try:
             parsed = json.loads(citation_raw)
             return prepare_cached_citation(parsed, default_tool=default_tool)
-        except Exception:
-            pass
+        except (ValueError, TypeError) as exc:
+            logger.warning("Unparseable cached external citation; using default: %s", exc)
     return Citation(
         source_agent="external_sector",
         source_authority="Reserve Bank of India (RBI)",

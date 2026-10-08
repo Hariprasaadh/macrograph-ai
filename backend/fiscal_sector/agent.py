@@ -28,6 +28,7 @@ from tenacity import (
     wait_exponential,
 )
 
+from core.protocols.a2a.peers import gather_peer_context
 from fiscal_sector import client
 from fiscal_sector.config import fiscal_settings
 from fiscal_sector.models import DataFreshness
@@ -138,6 +139,9 @@ async def fiscal_agent_node(state: dict[str, Any]) -> dict[str, Any]:
     query = state.get("query", "Analyze India's fiscal deficit, government debt, and GST revenue trends.")
     logger.info("fiscal_agent_node invoked for query: %s", query)
 
+    # Peer-owned indicators (repo rate, CPI, bank credit) are requested over A2A while local data loads.
+    peer_task = asyncio.create_task(gather_peer_context("fiscal_sector", state, query))
+
     # 1. Fetch data from internal tools concurrently
     deficit_task = client.fetch_union_fiscal_deficit(lookback_records=5)
     debt_task = client.fetch_sovereign_debt_imf(start_year=2020, end_year=2025)
@@ -228,7 +232,9 @@ async def fiscal_agent_node(state: dict[str, Any]) -> dict[str, Any]:
         elif "monetary.repo_rate" in ind:
             peer_context_lines.append(f"- RBI Repo Rate (from Monetary Agent): {obs.get('value')}% ({obs.get('observation_period')})")
 
-    peer_str = "\n".join(peer_context_lines) if peer_context_lines else "None provided in initial state."
+    a2a_lines, _ = await peer_task
+    peer_context_lines.extend(a2a_lines)
+    peer_str = "\n".join(peer_context_lines) if peer_context_lines else "No peer signals available."
 
     # 3. Build data summary for LLM prompt
     data_summary = {

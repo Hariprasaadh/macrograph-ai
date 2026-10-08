@@ -7,169 +7,82 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any, Dict, List
+from langchain_core.runnables import RunnableLambda
 from langgraph.graph import END, StateGraph
 
-from ..data.schema import SectorEnum
-from ..protocols.a2a import TaskRequest, TaskState, agent_registry
+from ..protocols.a2a import agent_registry, trace_store
+from ..protocols.a2a.messages import new_id
+from ..protocols.a2a.router import route_query
 from ..knowledge_graph.networkx_engine import graph_engine
 from ..econometrics.causal_engine import causal_engine
 from .llm_client import llm_client
 from .state import OrchestratorState
-from .registry_bootstrap import bootstrap_agent_registry
+from .a2a_dispatch import agents_for_sectors, aggregate, delegate, run_sync
+from .registry_bootstrap import bootstrap_agent_registry  # noqa: F401  (registers agents on import)
 
-CANONICAL_ID_MAP = {
-    "gdp_growth": "in.macro.real.gdp_growth",
-    "iip_growth": "in.macro.real.iip_growth",
-    "industry": "in.macro.real.iip_growth",
-    "national_income": "in.macro.real.gdp_growth",
-    "cpi_inflation": "in.macro.prices.cpi_headline",
-    "prices": "in.macro.prices.cpi_headline",
-    "wpi_all": "in.macro.prices.wpi_all",
-    "brent_crude": "in.macro.prices.brent_crude",
-    "repo_rate": "in.macro.monetary.repo_rate",
-    "monetary": "in.macro.monetary.repo_rate",
-    "debt_to_gdp": "in.macro.fiscal.debt_to_gdp",
-    "forex_reserves": "in.macro.external.forex_reserves",
-    "nifty_50": "in.macro.capmarkets.nifty_50",
-    "equity": "in.macro.capmarkets.nifty_50",
-    "india_vix": "in.macro.capmarkets.india_vix",
-    "vix": "in.macro.capmarkets.india_vix",
-    "bank_credit_growth": "in.macro.monetary.bank_credit_growth",
-    "foodgrain_production": "in.macro.agri.foodgrain_production",
-    "agriculture": "in.macro.agri.foodgrain_production",
-    "epfo_additions": "in.macro.labour.epfo_additions",
-}
 
 
 # -----------------------------------------------------------------------------
-# 1. Decomposition Node
+# 1. Decomposition Node (capability routing over registered Agent Cards)
 # -----------------------------------------------------------------------------
+_ROUTER_SYSTEM_PROMPT = "You route macroeconomic questions to sector agents. Answer with a JSON array only."
+
+
+async def _llm_complete(prompt: str) -> str:
+    return await llm_client.complete(prompt, _ROUTER_SYSTEM_PROMPT, True)
+
+
 def decompose_node(state: OrchestratorState) -> Dict[str, Any]:
-    """Decomposes the macro research query into domain sectors and sub-tasks."""
-    query = state.get("query", "").lower()
-    sectors: List[str] = []
-
-    if any(w in query for w in ["gdp", "growth", "iip", "output", "industry", "investment", "gfcf", "real"]):
-        sectors.append(SectorEnum.REAL_ECONOMY.value)
-    if any(w in query for w in ["inflation", "cpi", "wpi", "crude", "oil", "food inflation"]):
-        sectors.append(SectorEnum.PRICES_INFLATION.value)
-    if any(w in query for w in ["repo", "rate", "rbi", "monetary", "credit", "banking", "liquidity"]):
-        sectors.append(SectorEnum.MONETARY_BANKING.value)
-    if any(w in query for w in ["fiscal", "deficit", "capex", "debt", "tax", "gst"]):
-        sectors.append(SectorEnum.FISCAL.value)
-    if any(w in query for w in ["forex", "usd", "inr", "currency", "trade", "cad", "export", "import"]):
-        sectors.append(SectorEnum.EXTERNAL.value)
-    if any(w in query for w in ["nifty", "sensex", "vix", "equity", "earnings", "stock market", "fii", "dii"]):
-        sectors.append(SectorEnum.CAPITAL_MARKETS.value)
-    if any(w in query for w in [
-        "agmarket", "agmarknet", "agricultur", "crop", "msp", "foodgrain", "rural", "mandi",
-        "rainfall", "monsoon", "onion", "wheat", "rice", "tomato", "potato", "fertilizer",
-        "irrigation", "vegetable", "sowing", "kharif", "rabi", "pulses", "gram", "mustard"
-    ]):
-        sectors.append(SectorEnum.AGRICULTURE_RURAL.value)
-    if any(w in query for w in ["labour", "employment", "unemployment", "epfo", "wage"]):
-        sectors.append(SectorEnum.LABOUR_EMPLOYMENT.value)
-
-    if not sectors:
-        sectors = [SectorEnum.REAL_ECONOMY.value, SectorEnum.PRICES_INFLATION.value, SectorEnum.MONETARY_BANKING.value]
-
-    tasks = [{"sector": s, "task": f"Analyze verified indicators and transmission signals for: {s}"} for s in sectors]
-
-    return {
-        "target_sectors": sectors,
-        "decomposed_tasks": tasks,
-        "status": "decomposed"
-    }
-
-
-# -----------------------------------------------------------------------------
-# 2. Parallel A2A Execution Node (Strict Standard A2A Protocol Flow)
-# -----------------------------------------------------------------------------
-def parallel_a2a_execute_node(state: OrchestratorState) -> Dict[str, Any]:
-    """Dispatches A2A TaskRequests across discovered domain agents via AgentRegistry and collects A2AArtifacts."""
+    """Selects sector agents from their Agent Cards; the LLM is consulted only when no card matches."""
     query = state.get("query", "")
-    target_sectors = state.get("target_sectors", [])
-    collected_obs: List[Dict[str, Any]] = []
-    agent_analyses: List[Dict[str, Any]] = []
-    citations: List[Dict[str, Any]] = []
+    decision = run_sync(route_query(query, agent_registry, _llm_complete))
+    agent_ids = [c.agent_id for c in decision.choices]
 
-    # Map target sectors to registered Agent Card names
-    sector_agent_map = {
-        SectorEnum.REAL_ECONOMY.value: "Real Sector Macroeconomic Agent",
-        SectorEnum.PRICES_INFLATION.value: "Prices & Inflation Sector Macroeconomic Agent",
-        SectorEnum.MONETARY_BANKING.value: "Finance & Banking Sector Macroeconomic Agent",
-        SectorEnum.FISCAL.value: "Fiscal & Public Finance Sector Macroeconomic Agent",
-        SectorEnum.EXTERNAL.value: "Finance & Banking Sector Macroeconomic Agent",
-        SectorEnum.CAPITAL_MARKETS.value: "Capital Markets Macroeconomic Agent",
-        SectorEnum.AGRICULTURE_RURAL.value: "Agriculture Agent",
-        SectorEnum.LABOUR_EMPLOYMENT.value: "Real Sector Macroeconomic Agent",
-    }
-
-    agents_to_call = list(set(sector_agent_map.get(s) for s in target_sectors if sector_agent_map.get(s)))
-    if not agents_to_call:
-        agents_to_call = ["Real Sector Macroeconomic Agent", "Finance & Banking Sector Macroeconomic Agent", "Capital Markets Macroeconomic Agent", "Prices & Inflation Sector Macroeconomic Agent"]
-
-    # Dispatch tasks through A2A AgentRegistry
-    for agent_name in agents_to_call:
-        task_req = TaskRequest(
-            query=query,
-            skills_required=agent_registry.route_query_skills(query),
-            parameters={"query": query}
-        )
-        task_resp = agent_registry.execute_task(agent_name, task_req)
-
-        if task_resp.status == TaskState.COMPLETED:
-            for art in task_resp.artifacts:
-                if art.type == "json" and isinstance(art.content, dict):
-                    agent_analyses.append({
-                        "agent": agent_name,
-                        "artifact_name": art.name,
-                        "provenance_hash": art.metadata.get("sha256", "verified"),
-                        "metrics": art.content
-                    })
-                    if agent_name == "Agriculture Agent":
-                        for citation in art.content.get("citations", []):
-                            # Keep the complete source record; never substitute Current.
-                            if citation.get("value") is None:
-                                continue
-                            item = {
-                                **citation,
-                                "indicator_id": "in.macro.agri." + citation["mcp_tool"].removeprefix("get_"),
-                                "observation_period": citation["period"],
-                                "data_status": citation["freshness"],
-                                "provenance_hash": art.provenance_hash,
-                            }
-                            collected_obs.append(item)
-                            citations.append(item)
-                        continue
-                    # Extract observations
-                    for key, val in art.content.items():
-                        if isinstance(val, dict) and "indicators" in val:
-                            for ind_name, ind_data in val["indicators"].items():
-                                if isinstance(ind_data, dict):
-                                    can_id = CANONICAL_ID_MAP.get(ind_name, f"in.macro.{ind_name}")
-                                    collected_obs.append({
-                                        "indicator_id": can_id,
-                                        "value": ind_data.get("latest_value"),
-                                        "unit": ind_data.get("unit", ""),
-                                        "observation_period": ind_data.get("latest_period", "Current"),
-                                        "data_status": ind_data.get("data_status", "verified_historical")
-                                    })
-                                    citations.append({
-                                        "indicator_id": can_id,
-                                        "period": ind_data.get("latest_period", "Current"),
-                                        "value": ind_data.get("latest_value"),
-                                        "unit": ind_data.get("unit", ""),
-                                        "data_status": ind_data.get("data_status", "verified_historical"),
-                                        "provenance_hash": art.metadata.get("sha256", "prov-a2a")
-                                    })
+    sectors: List[str] = []
+    for agent_id in agent_ids:
+        card = agent_registry.get_agent(agent_id)
+        sector = card.metadata.get("sector") if card else None
+        if sector and sector not in sectors:
+            sectors.append(sector)
 
     return {
-        "collected_observations": collected_obs,
-        "agent_analyses": agent_analyses,
-        "citations": citations,
-        "status": "a2a_completed"
+        "conversation_id": state.get("conversation_id") or new_id("conv"),
+        "routed_agents": agent_ids,
+        "routing_method": decision.method,
+        "target_sectors": sectors,
+        "decomposed_tasks": [
+            {"agent_id": c.agent_id, "task": c.task, "matched": c.matched} for c in decision.choices
+        ],
+        "status": "decomposed",
     }
+
+
+# -----------------------------------------------------------------------------
+# 2. Parallel A2A Execution Node
+# -----------------------------------------------------------------------------
+async def parallel_a2a_execute_async(state: OrchestratorState) -> Dict[str, Any]:
+    """Delegates to the routed agents over A2A and merges their validated, source-bearing responses."""
+    query = state.get("query", "")
+    agent_ids = state.get("routed_agents") or agents_for_sectors(state.get("target_sectors", []))
+    if not agent_ids:
+        agent_ids = [c.agent_id for c in (await route_query(query, agent_registry)).choices]
+    conversation_id = state.get("conversation_id") or new_id("conv")
+
+    responses = await delegate(query, agent_ids, conversation_id)
+    merged = aggregate(responses)
+    merged["conversation_id"] = conversation_id
+    merged["a2a_trace"] = trace_store.get_trace(conversation_id)
+    return merged
+
+
+def parallel_a2a_execute_node(state: OrchestratorState) -> Dict[str, Any]:
+    """Sync entry point for LangGraph.invoke()."""
+    return run_sync(parallel_a2a_execute_async(state))
+
+
+# Maximum indicator pairs explored in the KG per request. O(n^2) traversal
+# becomes expensive above this bound; the most important indicators appear first.
+_MAX_KG_INDICATOR_PAIRS = 20
 
 
 # -----------------------------------------------------------------------------
@@ -187,20 +100,30 @@ def kg_causal_enrichment_node(state: OrchestratorState) -> Dict[str, Any]:
         if shock_var not in ind_ids:
             ind_ids.append(shock_var)
 
-    # Discover transmission paths in NetworkX Knowledge Graph
+    # Discover transmission paths in NetworkX Knowledge Graph.
+    # Cap at _MAX_KG_INDICATOR_PAIRS to avoid O(n^2) PathFinder calls.
     causal_paths = []
-    for u in ind_ids:
-        for v in ind_ids:
-            if u != v:
-                path = graph_engine.get_shortest_transmission_path(u, v)
-                if path:
-                    causal_paths.append({
-                        "from": u,
-                        "to": v,
-                        "hops": len(path),
-                        "total_lag_months": sum(r.transmission_lag_months for r in path),
-                        "relations": [r.model_dump() for r in path]
-                    })
+    sampled = ind_ids[:10]  # first 10 keeps pairs <= 90, well inside limit
+    pairs_checked = 0
+    for u in sampled:
+        for v in sampled:
+            if u == v:
+                continue
+            if pairs_checked >= _MAX_KG_INDICATOR_PAIRS:
+                break
+            pairs_checked += 1
+            path = graph_engine.get_shortest_transmission_path(u, v)
+            if path:
+                causal_paths.append({
+                    "from": u,
+                    "to": v,
+                    "hops": len(path),
+                    "total_lag_months": sum(r.transmission_lag_months for r in path),
+                    "relations": [r.model_dump() for r in path],
+                })
+        else:
+            continue
+        break
 
     # Execute Scenario Simulation if shock provided
     scenario_result = None
@@ -222,6 +145,9 @@ def kg_causal_enrichment_node(state: OrchestratorState) -> Dict[str, Any]:
     }
 
 
+_REPORT_EXCERPT_CHARS = 1500
+
+
 # -----------------------------------------------------------------------------
 # 4. Synthesis Node
 # -----------------------------------------------------------------------------
@@ -239,22 +165,36 @@ def synthesis_node(state: OrchestratorState) -> Dict[str, Any]:
         for o in observations
     ])
 
+    agent_reports = "\n\n".join(
+        f"[{a['agent']}]\n{a['report_markdown'][:_REPORT_EXCERPT_CHARS]}"
+        for a in state.get("agent_analyses", []) if a.get("report_markdown")
+    )
+    a2a_errors = state.get("a2a_errors", [])
+    unavailable = "\n".join(f"- {e['agent']}: {e['code']} - {e['message']}" for e in a2a_errors)
+
     prompt = (
         f"Synthesize a rigorous Indian macroeconomic research report answering: '{query}'\n\n"
         f"Verified A2A Domain Observations:\n{obs_summary}\n\n"
         f"Knowledge Graph Causal Transmission Paths Mapped: {len(causal_paths)}\n"
     )
+    if agent_reports:
+        prompt += f"\nSector Agent Reports (A2A):\n{agent_reports}\n"
+    if unavailable:
+        prompt += (
+            "\nSector agents that could not respond (state this explicitly; do not infer their data):\n"
+            f"{unavailable}\n"
+        )
     if scenario_res:
         prompt += f"\nScenario Simulation: {scenario_res.get('scenario_name')}\n"
 
-    narrative_summary = llm_client.complete(
+    narrative_summary = llm_client.complete_sync(
         prompt=prompt,
         system_prompt="You are a senior Indian macroeconomic intelligence analyst. Provide rigorous, source-attributed, data-driven synthesis without hardcoding numbers.",
-        use_reasoning_model=True
+        use_reasoning_model=True,
     )
 
     report_lines = [
-        f"# Indian Macroeconomic Intelligence Report\n",
+        "# Indian Macroeconomic Intelligence Report\n",
         f"**Research Query**: *{query}*\n",
         "## 1. Executive Synthesis\n",
         narrative_summary,
@@ -264,7 +204,7 @@ def synthesis_node(state: OrchestratorState) -> Dict[str, Any]:
     ]
     for c in citations:
         report_lines.append(
-            f"| `{c['indicator_id']}` | **{c['value']}** | {c['unit']} | {c['period']} | `{c['data_status']}` | `{c['provenance_hash']}` |"
+            f"| `{c['indicator_id']}` | **{c['value']}** | {c['unit']} | {c['period']} | `{c['data_status']}` | `{c.get('provenance_hash') or 'n/a'}` |"
         )
 
     report_lines.append("\n## 3. Cross-Sector Causal Transmission Channels\n")
@@ -284,16 +224,35 @@ def synthesis_node(state: OrchestratorState) -> Dict[str, Any]:
                 )
 
 
-    report_lines.append("\n## 5. Methodological & Causal Classification Notes\n")
+    if state.get("a2a_sources"):
+        report_lines.append("\n## 5. A2A Source Provenance\n")
+        report_lines.append("| Agent | Source | Dataset / Table | Period | Retrieved |")
+        report_lines.append("| :--- | :--- | :--- | :--- | :--- |")
+        for src in state["a2a_sources"]:
+            ref = " / ".join(x for x in (src.get("dataset"), src.get("table")) if x) or "n/a"
+            report_lines.append(
+                f"| {src['agent']} | {src['source_name']} | {ref} | "
+                f"{src.get('reporting_period') or 'n/a'} | {src['retrieved_at']} |"
+            )
+    if a2a_errors:
+        report_lines.append("\n### Unavailable Agent Data\n")
+        report_lines.extend(f"- `{e['agent']}`: {e['code']} - {e['message']}" for e in a2a_errors)
+
+    report_lines.append("\n## 6. Methodological & Causal Classification Notes\n")
     report_lines.append("- Multi-agent data dispatched strictly via standard A2A Protocol and FastMCP tool servers.")
     report_lines.append("- Transmission edges classified according to 5-tier taxonomy (THEORY -> STATISTICAL -> LAGGED -> GRANGER -> STRUCTURAL_CAUSAL_MODEL).")
 
     final_report = "\n".join(report_lines)
 
+    available = sum(
+        1 for o in observations if o.get("data_status") not in ("unavailable", "unspecified", None)
+    )
+    confidence_score = round(available / max(len(observations), 1), 2) if observations else 0.0
+
     return {
         "final_report": final_report,
-        "confidence_score": 0.94,
-        "status": "completed"
+        "confidence_score": confidence_score,
+        "status": "completed",
     }
 
 
@@ -304,7 +263,10 @@ def build_orchestrator_graph() -> Any:
     builder = StateGraph(OrchestratorState)
 
     builder.add_node("decompose", decompose_node)
-    builder.add_node("parallel_a2a_execute", parallel_a2a_execute_node)
+    builder.add_node(
+        "parallel_a2a_execute",
+        RunnableLambda(parallel_a2a_execute_node, afunc=parallel_a2a_execute_async),
+    )
     builder.add_node("kg_causal_enrichment", kg_causal_enrichment_node)
     builder.add_node("synthesis", synthesis_node)
 

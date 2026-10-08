@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from core.protocols.a2a.lifecycle import AgentExecutor, EventQueue
+from core.protocols.a2a.peers import gather_peer_context
 from core.protocols.a2a.models import (
     A2AArtifact,
     A2AMessage,
@@ -27,6 +29,8 @@ from core.protocols.a2a.models import (
 )
 from fiscal_sector import client
 from fiscal_sector.models import DataFreshness
+
+logger = logging.getLogger(__name__)
 
 
 class FiscalSectorAgentExecutor(AgentExecutor):
@@ -115,6 +119,10 @@ class FiscalSectorAgentExecutor(AgentExecutor):
         )
 
         try:
+            # Repo rate, CPI and bank credit are owned by peer sectors: request them over A2A.
+            peer_task = asyncio.create_task(gather_peer_context(
+                "fiscal_sector", context.request.parameters if context.request else None, context.query,
+            ))
             results = await asyncio.gather(
                 client.fetch_union_fiscal_deficit(lookback_records=3),
                 client.fetch_sovereign_debt_imf(start_year=2020, end_year=2024),
@@ -175,6 +183,10 @@ class FiscalSectorAgentExecutor(AgentExecutor):
                     f"| MoSPI Net Product Taxes | {m.current_price_cr:,.0f} | ₹ Crore | {m.year} | {m.citation.source_authority} | {m.citation.table_reference} |"
                 )
 
+            peer_lines, peer_data = await peer_task
+            if peer_lines:
+                summary_lines.extend(["", "## 3. Peer Signals (A2A)", *peer_lines])
+
             final_markdown = "\n".join(summary_lines)
 
             structured_metrics = {
@@ -195,6 +207,7 @@ class FiscalSectorAgentExecutor(AgentExecutor):
                         "freshness": deficits[0].citation.freshness.value if deficits else "cached",
                     }
                 ],
+                "peer_signals": peer_data,
             }
 
             artifact = A2AArtifact(
@@ -227,7 +240,7 @@ class FiscalSectorAgentExecutor(AgentExecutor):
                 messages=[
                     A2AMessage(
                         role="assistant",
-                        parts=[A2AMessagePart(type="text", text=final_markdown)],
+                        parts=[A2AMessagePart(kind="markdown", content=final_markdown)],
                     )
                 ],
                 artifacts=[artifact],

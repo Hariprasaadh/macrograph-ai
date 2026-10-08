@@ -254,7 +254,12 @@ def test_parse_structured_weather_response():
 
 
 @pytest.mark.asyncio
-async def test_historical_weather_agent_calls_weather_tool(sources):
+async def test_historical_weather_agent_calls_weather_tool(sources, monkeypatch):
+    import agriculture_sector.agent as agent_module
+    real_resolve = agent_module._resolve_weather_dates
+    monkeypatch.setattr(
+        agent_module, "_resolve_weather_dates", lambda query, today=None: real_resolve(query, date(2026, 10, 4)),
+    )
     result = await agriculture_agent_node({"query": "weather in tamilnadu last week"})
     assert result["agriculture_sector_status"] == "completed"
     assert result["agriculture_sector_citations"]

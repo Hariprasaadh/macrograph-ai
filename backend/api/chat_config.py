@@ -1,8 +1,11 @@
-"""Configuration and indicator mappings for direct sector chat investigations."""
+"""Per-sector configuration for direct sector chat (data keys, report sections, models)."""
 from __future__ import annotations
 
 from typing import Any
-
+from agriculture_sector.agent import (
+    agriculture_agent_node, _SERVICE_KEYWORDS as _AGRICULTURE_SERVICE_KEYWORDS,
+)
+from prices_sector.agent import prices_agent_node
 from external_sector.agent import (
     _SERVICE_KEYWORDS as _EXTERNAL_SERVICE_KEYWORDS,
     external_agent_node,
@@ -34,7 +37,30 @@ from services_sector.agent import (
 )
 from services_sector.config import services_settings
 
+
 _DIRECT_SECTOR_CHAT: dict[str, dict[str, Any]] = {
+    "agriculture_sector": {
+        "node": agriculture_agent_node,
+        "service_keywords": _AGRICULTURE_SERVICE_KEYWORDS,
+        "name": "Agriculture",
+        "data_key": "agriculture_sector_data",
+        "analysis_key": "agriculture_sector_analysis",
+        "citations_key": "agriculture_sector_citations",
+        "errors_key": "agriculture_sector_errors",
+        "freshness_key": "agriculture_sector_freshness",
+        "sections": [],
+    },
+    "prices_sector": {
+        "node": prices_agent_node,
+        "service_keywords": {},
+        "name": "Prices & Inflation",
+        "data_key": "prices_sector_data",
+        "analysis_key": "prices_sector_analysis",
+        "citations_key": "prices_sector_citations",
+        "errors_key": "prices_sector_errors",
+        "freshness_key": "prices_sector_freshness",
+        "sections": [],
+    },
     "external_sector": {
         "node": external_agent_node,
         "service_keywords": _EXTERNAL_SERVICE_KEYWORDS,
@@ -247,9 +273,6 @@ _DIRECT_SECTOR_CHAT: dict[str, dict[str, Any]] = {
             ("manufacturing_gva", "Manufacturing GVA", [
                 ("Real GVA YoY", "manufacturing_gva_real_yoy_pct", "%"),
                 ("Nominal GVA (₹ Cr)", "manufacturing_gva_cr", " Cr"),
-            ]),
-            ("obicus_capacity", "Capacity Utilisation (OBICUS)", [
-                ("Capacity Utilisation Ratio", "capacity_utilisation_pct", "%"),
             ]),
         ],
     },

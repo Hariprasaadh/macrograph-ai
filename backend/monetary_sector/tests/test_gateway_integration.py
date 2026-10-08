@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from fastapi.testclient import TestClient
+from api import chat_helpers
 
 
 def test_gateway_import_initializes_sector_schemas():
@@ -55,8 +56,9 @@ def test_sector_stream_retains_citation_metadata(monkeypatch):
             }],
         }
 
-    monkeypatch.setattr(gateway, "select_relevant_services_with_llm", select_policy_rates)
-    monkeypatch.setattr(gateway, "_run_direct_sector_chat", fake_response)
+    import api.chat as chat_api
+    monkeypatch.setattr(chat_api, "select_relevant_services_with_llm", select_policy_rates)
+    monkeypatch.setattr(chat_api, "_run_direct_sector_chat", fake_response)
     with TestClient(gateway.app) as client:
         response = client.post(
             "/api/v1/chat/stream",
@@ -97,7 +99,7 @@ def test_sector_response_maps_full_provenance():
         "freshness": "upstream_snapshot",
         "dataset": "policy_rates",
     }
-    response = gateway._sector_chat_response(
+    response = chat_helpers._sector_chat_response(
         "monetary_sector",
         {
             "monetary_sector_data": {},
@@ -115,7 +117,7 @@ def test_sector_response_maps_full_provenance():
 def test_sector_report_preserves_markdown_structure_and_selected_data_only():
     import main as gateway
 
-    response = gateway._sector_chat_response(
+    response = chat_helpers._sector_chat_response(
         "labour_sector",
         {
             "labour_sector_analysis": (
@@ -144,7 +146,7 @@ def test_sector_report_preserves_markdown_structure_and_selected_data_only():
 def test_missing_llm_fallback_formats_observations_and_takeaways_as_tables():
     import main as gateway
 
-    response = gateway._sector_chat_response(
+    response = chat_helpers._sector_chat_response(
         "external_sector",
         {
             "external_sector_analysis": "",

@@ -176,7 +176,7 @@ class CapitalMarketsAgentExecutor(AgentExecutor):
             await event_queue.emit(
                 TaskStatusUpdateEvent(task_id=task_id, status=TaskState.FAILED, message=str(exc), timestamp=err_time)
             )
-            return TaskResponse(task_id=task_id, status=TaskState.FAILED, messages=[], artifacts=[])
+            return TaskResponse(task_id=task_id, status=TaskState.FAILED, messages=[], artifacts=[], error=str(exc))
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> bool:
         return True

@@ -25,6 +25,8 @@ Macrograph-AI is an academically rigorous, multi-agent macroeconomic intelligenc
   +--------------+                            +--------------+
 ```
 
+Implementation details, schemas, loop protection, the declared cross-sector dependencies and how to add an agent are in [docs/a2a-architecture.md](docs/a2a-architecture.md).
+
 ### 2. Single Source of Truth Per Indicator
 Every macroeconomic indicator is owned exclusively by **one sector agent**. No agent may independently recompute or re-fetch an indicator owned by another sector.
 

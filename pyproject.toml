@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "a2a-sdk>=1.1.0",
     "fastmcp>=3.4.0",
+    "eco-policy-mcp>=0.1.0",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",
     "pydantic>=2.10.0",
@@ -56,5 +57,17 @@ namespaces = true
 
 [tool.pytest.ini_options]
 testpaths = ["backend/tests", "backend/finance_sector/tests", "backend/agriculture_sector/test_agriculture.py"]
-pythonpath = ["backend"]
+pythonpath = ["backend", "backend/tests"]
 asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py312"
+extend-exclude = ["frontend", "base_papers", ".venv"]
+
+[tool.ruff.lint]
+# Correctness checks only: syntax errors, undefined names, unused imports/variables.
+select = ["E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+# Package __init__ modules re-export their public API.
+"__init__.py" = ["F401"]

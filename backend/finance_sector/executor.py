@@ -25,6 +25,7 @@ from core.protocols.a2a.models import (
     TaskArtifactUpdateEvent,
 )
 from core.protocols.a2a.lifecycle import AgentExecutor, EventQueue
+from core.protocols.a2a.peers import gather_peer_context
 from finance_sector import client
 from finance_sector.models import BankGroup, DataFreshness
 
@@ -114,6 +115,10 @@ class FinanceSectorAgentExecutor(AgentExecutor):
         )
 
         try:
+            # Peer indicators (repo rate, CPI) are owned by other sectors: request them over A2A.
+            peer_task = asyncio.create_task(gather_peer_context(
+                "finance_sector", context.request.parameters if context.request else None, context.query,
+            ))
             # Fetch data across pillars independently
             market_res, news_res = await asyncio.gather(
                 client.fetch_banking_market_indicators(),
@@ -181,6 +186,10 @@ class FinanceSectorAgentExecutor(AgentExecutor):
                 summary_lines.append(
                     f"| CD Ratio | {dr.cd_ratio_pct}% | % | {dr.period} | {dr.citation.source_authority} | {dr.citation.table_reference} |"
                 )
+
+            peer_lines, _ = await peer_task
+            if peer_lines:
+                summary_lines.extend(["", "## 3. Peer Signals (A2A)", *peer_lines])
 
             report_md = "\n".join(summary_lines)
 

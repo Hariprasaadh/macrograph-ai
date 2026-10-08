@@ -56,9 +56,8 @@ Thumbs.db
 *.egg-info/
 .eggs/
 develop-eggs/
-<<<<<<< HEAD
 
 node_modules/
 package-lock.json/
-=======
->>>>>>> 1ae2b63 (Real and Agri implemented)
+
+CLAUDE.md

@@ -9,10 +9,18 @@ from datetime import datetime, timezone
 from enum import Enum
 import hashlib
 import json
-from typing import Any, Dict, List, Optional, Union
+from typing import Annotated, Any, Dict, List, Optional, Union
 import uuid
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, BeforeValidator, Field, model_validator
+
+
+def _coerce_timestamp(value: Any) -> Any:
+    """Accept datetime objects from sector executors and store ISO 8601 strings."""
+    return value.isoformat() if isinstance(value, datetime) else value
+
+
+IsoTimestamp = Annotated[str, BeforeValidator(_coerce_timestamp)]
 
 
 class TaskState(str, Enum):
@@ -61,6 +69,17 @@ class AgentCard(BaseModel):
         default_factory=lambda: {"type": "none"},
         description="Authentication specifications"
     )
+    agent_id: Optional[str] = Field(
+        default=None, description="Stable registry identifier, e.g. finance_sector"
+    )
+    supported_tasks: List[str] = Field(
+        default_factory=list, description="A2A task names this agent answers via A2ARequest.task"
+    )
+    input_schema: str = Field(default="A2ARequest", description="Request schema name")
+    output_schema: str = Field(default="A2AResponse", description="Response schema name")
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict, description="Routing metadata: sector, keywords, peer dependencies"
+    )
 
 
 class A2AMessagePart(BaseModel):
@@ -73,7 +92,7 @@ class A2AMessage(BaseModel):
     """Inter-agent message exchanged during task execution."""
     role: str = Field(..., description="Role of sender: user, orchestrator, agent")
     parts: List[A2AMessagePart] = Field(default_factory=list, description="Message content parts")
-    timestamp: str = Field(
+    timestamp: IsoTimestamp = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat(),
         description="ISO 8601 timestamp"
     )
@@ -117,8 +136,8 @@ class TaskResponse(BaseModel):
     status: TaskState
     messages: List[A2AMessage] = Field(default_factory=list)
     artifacts: List[A2AArtifact] = Field(default_factory=list)
-    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: IsoTimestamp = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: IsoTimestamp = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     error: Optional[str] = None
 
 
@@ -129,14 +148,14 @@ class TaskStatusUpdateEvent(BaseModel):
     message: Optional[str] = None
     progress: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     metadata: Dict[str, Any] = Field(default_factory=dict)
-    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    timestamp: IsoTimestamp = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
 class TaskArtifactUpdateEvent(BaseModel):
     """Event fired when a new artifact is attached to a task."""
     task_id: str
     artifact: A2AArtifact
-    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    timestamp: IsoTimestamp = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
 class RequestContext(BaseModel):

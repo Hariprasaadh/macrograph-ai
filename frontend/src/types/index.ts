@@ -68,9 +68,68 @@ export interface StreamStep {
   step: number;
   agent?: string;
   tool?: string;
+  /** Present on A2A steps; later events with the same id update the step in place. */
+  request_id?: string;
   title: string;
   detail: string;
-  status?: 'pending' | 'running' | 'completed';
+  status?: 'pending' | 'running' | 'completed' | 'partial' | 'failed';
+}
+
+export interface A2ATraceNode {
+  request_id: string;
+  parent_request_id: string | null;
+  sender_agent: string;
+  receiver_agent: string;
+  task: string;
+  depth: number;
+  started_at: string;
+  status: 'pending' | 'success' | 'partial' | 'failed';
+  error_codes: string[];
+  duration_ms: number | null;
+}
+
+export interface A2AErrorItem {
+  agent: string;
+  request_id: string;
+  code: string;
+  message: string;
+}
+
+export interface A2ASourceItem {
+  agent: string;
+  source_name: string;
+  source_url?: string | null;
+  dataset?: string | null;
+  table?: string | null;
+  reporting_period?: string | null;
+}
+
+export interface A2ASummary {
+  conversation_id: string | null;
+  routed_agents: string[];
+  routing_method: string | null;
+  status: string | null;
+  errors: A2AErrorItem[];
+  sources: A2ASourceItem[];
+  trace: A2ATraceNode[];
+}
+
+export interface A2ADependency {
+  consumer: string;
+  provider: string;
+  task: string;
+  rationale: string;
+}
+
+export interface A2AAgentCard {
+  agent_id?: string;
+  name: string;
+  description: string;
+  version?: string;
+  capabilities?: string[];
+  supported_tasks?: string[];
+  skills?: Array<{ id?: string; name?: string }>;
+  metadata?: { sector?: string; keywords?: string[] };
 }
 
 export interface ChatMessage {
@@ -93,6 +152,7 @@ export interface ChatMessage {
   confidenceScore?: number;
   dataStatus?: 'completed' | 'partial' | 'unavailable' | 'failed' | string;
   dataFreshness?: Record<string, string>;
+  a2a?: A2ASummary;
   isStreaming?: boolean;
 }
 

@@ -42,9 +42,6 @@ mcp_server = FastMCP(
     ),
     version="1.0.0",
 )
-mcp = mcp_server
-server = mcp_server
-
 db.initialise_schema()
 
 
@@ -195,7 +192,7 @@ async def get_realtime_monetary_news(
         )
 
 
-@mcp.resource("monetary://catalog")
+@mcp_server.resource("monetary://catalog")
 def get_catalog() -> str:
     import json
     return json.dumps({
@@ -211,7 +208,7 @@ def get_catalog() -> str:
     }, indent=2)
 
 
-@mcp.prompt()
+@mcp_server.prompt()
 def analyze_monetary_policy(focus_area: str = "rates_stance_liquidity") -> str:
     """Prompt template for analyzing India's monetary policy stance and liquidity."""
     return (

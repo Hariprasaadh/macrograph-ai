@@ -30,8 +30,14 @@ def _resolve_groq_api_key(preferred_key: str | None) -> str | None:
     if settings.GROQ_API_KEY:
         return settings.GROQ_API_KEY
 
-    from finance_sector.config import finance_settings
-    return finance_settings.FIN_FIS_KEY
+    try:
+        from finance_sector.config import finance_settings
+        if getattr(finance_settings, "FIN_FIS_KEY", None):
+            return finance_settings.FIN_FIS_KEY
+    except Exception:
+        pass
+
+    return None
 
 
 def select_relevant_services(

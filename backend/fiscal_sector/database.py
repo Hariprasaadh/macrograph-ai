@@ -182,10 +182,16 @@ def upsert_rows(table: str, rows: list[dict[str, Any]]) -> int:
     ON CONFLICT ({conflict_col}) DO UPDATE SET {update_str}
     """
 
+    params = [[r[c] for c in columns] for r in rows]
+
     with get_connection() as conn:
-        for r in rows:
-            values = [r[c] for c in columns]
-            conn.execute(sql, values)
+        conn.execute("BEGIN TRANSACTION")
+        try:
+            conn.executemany(sql, params)
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
 
     return len(rows)
 

@@ -1,4 +1,4 @@
-"""Helper functions for formatting, progress tracking, and running sector chat."""
+"""Response shaping and progress events for direct sector chat."""
 from __future__ import annotations
 
 import logging
@@ -7,11 +7,8 @@ from typing import Any
 
 from api.chat_config import _DIRECT_SECTOR_CHAT
 
-logger = logging.getLogger(__name__)
-
 
 def _has_sector_value(value: Any) -> bool:
-    """Check whether an observation value is present and valid."""
     if isinstance(value, (int, float)) and not math.isfinite(value):
         return False
     return value is not None and not (
@@ -25,7 +22,6 @@ def _format_sector_report(
     freshness: dict[str, Any] | None = None,
     citations: list[dict[str, Any]] | None = None,
 ) -> str:
-    """Format tabular fallback report when LLM narrative generation is unavailable."""
     freshness = freshness or {}
     citations = citations or []
     lines = [
@@ -105,7 +101,6 @@ def _format_sector_report(
 
 
 def _sector_chat_response(target: str, node_result: dict[str, Any]) -> dict[str, Any]:
-    """Map direct sector agent node result into a standardized chat response structure."""
     config = _DIRECT_SECTOR_CHAT[target]
     data_context = node_result.get(config["data_key"]) or {}
     if not isinstance(data_context, dict):
@@ -116,6 +111,7 @@ def _sector_chat_response(target: str, node_result: dict[str, Any]) -> dict[str,
     raw_citations = node_result.get(config["citations_key"]) or []
     citations = [
         {
+            **(citation if target == "agriculture_sector" else {}),
             "source_agent": citation["source_agent"],
             "authority": citation.get("source_authority"),
             "source_authority": citation.get("source_authority"),
@@ -126,6 +122,7 @@ def _sector_chat_response(target: str, node_result: dict[str, Any]) -> dict[str,
             "source_base_url": citation.get("source_base_url"),
             "source_note": citation.get("source_note"),
             "as_of": citation.get("as_of"),
+            "fetched_at": citation.get("fetched_at"),
             "frequency": citation.get("frequency"),
             "unit": citation.get("unit"),
             "period": citation.get("observation_period"),
@@ -149,7 +146,7 @@ def _sector_chat_response(target: str, node_result: dict[str, Any]) -> dict[str,
     retrieval_errors = [error for error in errors if error not in reasoning_errors]
     if reasoning_errors:
         report += "\n\nAnalysis note: The configured LLM could not provide a narrative interpretation."
-    if retrieval_errors:
+    if retrieval_errors and target != "agriculture_sector":
         report += "\n\n### Data retrieval issues\n\n" + "\n".join(f"- {error}" for error in retrieval_errors)
 
     available_values = []
@@ -170,6 +167,11 @@ def _sector_chat_response(target: str, node_result: dict[str, Any]) -> dict[str,
         else "completed"
     )
 
+    if target == "agriculture_sector":
+        status = node_result.get("agriculture_sector_status", "unavailable")
+    if target == "prices_sector":
+        status = node_result.get("prices_sector_status", "unavailable")
+
     return {
         "status": status,
         "agent_routed": f"{config['name']} Specialist",
@@ -187,17 +189,19 @@ async def _run_direct_sector_chat(
     *,
     selected_services: set[str] | None = None,
     selection_error: str | None = None,
+    parameters: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Execute domain node directly for the targeted sector."""
     config = _DIRECT_SECTOR_CHAT[target]
     try:
         state: dict[str, Any] = {"query": message}
+        if target == "agriculture_sector":
+            state["parameters"] = parameters or {}
         if selected_services is not None:
             state["_selected_services"] = selected_services
             state["_selection_error"] = selection_error
         node_result = await config["node"](state)
     except Exception as exc:
-        logger.exception("Direct %s chat agent failed", target)
+        logging.getLogger(__name__).exception("Direct %s chat agent failed", target)
         return {
             "status": "failed",
             "agent_routed": f"{config['name']} Specialist",
@@ -219,7 +223,6 @@ def _sector_progress_events(
     selected_services: set[str],
     selection_error: str | None,
 ) -> list[dict[str, Any]]:
-    """Build step-by-step progress events for SSE client streaming."""
     config = _DIRECT_SECTOR_CHAT[target]
     events = [{
         "type": "step",
@@ -286,8 +289,7 @@ def _sector_progress_events(
     return events
 
 
-def _build_finance_citations(ctx: dict[str, Any], fresh: dict[str, Any]) -> list[dict[str, Any]]:
-    """Build structured attribution citations for finance sector observations."""
+def _build_finance_citations(ctx: dict, fresh: dict) -> list[dict]:
     cits = []
     credit_info = ctx.get("credit_growth", {})
     if credit_info.get("status") != "unavailable" and credit_info.get("period"):

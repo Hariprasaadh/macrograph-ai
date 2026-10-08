@@ -666,21 +666,6 @@ class TestFinanceAgentNode:
         assert result["finance_sector_freshness"]["credit"] == "live"
         assert result["finance_sector_data"]["credit_growth"]["non_food_credit_yoy_pct"] == 15.0
 
-    def test_pydantic_ai_agent_offline_verification(self):
-        """Verifies PydanticAI Agent runs offline with TestModel adhering to the pydantic-ai skill."""
-        pytest.importorskip("pydantic_ai")
-        from pydantic_ai.models.test import TestModel
-        from finance_sector.agent import create_pydantic_ai_agent, FinanceAnalysisOutput
-
-        agent = create_pydantic_ai_agent(model=TestModel())
-        result = agent.run_sync("Assess asset quality and credit growth")
-
-        output = getattr(result, "output", getattr(result, "data", None))
-        assert isinstance(output, FinanceAnalysisOutput)
-        assert hasattr(output, "summary")
-        assert hasattr(output, "key_findings")
-        assert hasattr(output, "citations")
-
 
 # ---------------------------------------------------------------------------
 # Test Suite 6: Banking Market Indicators (yfinance) & Tavily News

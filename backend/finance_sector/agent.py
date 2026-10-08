@@ -30,6 +30,12 @@ from tenacity import (
     wait_exponential,
 )
 
+from core.protocols.a2a.peers import (
+    observations as peer_observations,
+    parent_context,
+    peer_records,
+    request_peer_signals,
+)
 from finance_sector import client
 from finance_sector.config import finance_settings
 from finance_sector.market_client import (
@@ -115,6 +121,17 @@ async def finance_agent_node(state: dict[str, Any]) -> dict[str, Any]:
     repo_rate: float | None = state.get("repo_rate_from_monetary")
     headline_cpi: float | None = state.get("headline_cpi_from_prices")
 
+    # Repo rate and CPI are owned by Monetary and Prices: request any missing value over A2A.
+    peer_needs = [
+        need for need, value in (
+            (("monetary_sector", "repo_rate"), repo_rate),
+            (("prices_sector", "cpi_headline"), headline_cpi),
+        ) if value is None
+    ]
+    peer_task = asyncio.create_task(request_peer_signals(
+        "finance_sector", peer_needs, parent=parent_context(state), question=raw_query,
+    )) if peer_needs else None
+
     # ── Step 1: Concurrently fetch official banking data + market indicators ───
     credit_task = client.fetch_bank_credit_growth(lookback_months=6)
     quality_task = client.fetch_asset_quality(BankGroup.ALL_SCB, lookback_quarters=4)
@@ -136,6 +153,13 @@ async def finance_agent_node(state: dict[str, Any]) -> dict[str, Any]:
     # ── Step 2: At the end, query Tavily for real-time news & context ──────────
     news_query = f"RBI Indian banking commercial banks {safe_query}"[:200]
     news_response = await fetch_realtime_finance_news(query=news_query, max_results=4)
+
+    peer_responses = await peer_task if peer_task else []
+    peer_found = peer_observations(peer_responses)
+    if repo_rate is None and "in.macro.monetary.repo_rate" in peer_found:
+        repo_rate = peer_found["in.macro.monetary.repo_rate"][0].value
+    if headline_cpi is None and "in.macro.prices.cpi_headline" in peer_found:
+        headline_cpi = peer_found["in.macro.prices.cpi_headline"][0].value
 
     errors = [str(r) for r in results if isinstance(r, Exception)]
     if errors:
@@ -233,6 +257,7 @@ async def finance_agent_node(state: dict[str, Any]) -> dict[str, Any]:
         "a2a_inputs": {
             "repo_rate_from_monetary_sector": repo_rate,
             "headline_cpi_from_prices_sector": headline_cpi,
+            "a2a_peer_signals": peer_records(peer_responses),
         },
     }
 

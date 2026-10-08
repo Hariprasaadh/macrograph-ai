@@ -28,11 +28,22 @@ _needs_mpc_news = mcp_registry.wants_news
 _wants_force_live = mcp_registry.wants_force_live
 _wants_cache_clear = mcp_registry.wants_cache_clear
 
+async def _fetch_service(name: str, force_live: bool = False) -> Any:
+    """Fetch one service with optional force_live cache bypass."""
+    if name == "policy_rates":
+        return await client.fetch_policy_rates(lookback_months=6, force_live=force_live)
+    if name == "money_supply":
+        return await client.fetch_money_supply(lookback_months=6, force_live=force_live)
+    if name == "system_liquidity":
+        return await client.fetch_system_liquidity(lookback_months=6, force_live=force_live)
+    if name == "monetary_stance":
+        return await client.fetch_monetary_stance_snapshot(force_live=force_live)
+    raise ValueError(f"Unknown monetary service: {name}")
+
+
 _FETCHERS = {
-    "policy_rates": lambda: client.fetch_policy_rates(lookback_months=6),
-    "money_supply": lambda: client.fetch_money_supply(lookback_months=6),
-    "system_liquidity": lambda: client.fetch_system_liquidity(lookback_months=6),
-    "monetary_stance": lambda: client.fetch_monetary_stance_snapshot(),
+    name: (lambda n=name: _fetch_service(n, force_live=False))
+    for name in ("policy_rates", "money_supply", "system_liquidity", "monetary_stance")
 }
 
 _SYSTEM_PROMPT = """You are the Senior Monetary Policy & Liquidity Specialist for Macrograph AI.
@@ -76,15 +87,7 @@ STRICT ANTI-HALLUCINATION & PROVENANCE RULES:
 
 async def _fetch_forced_live(name: str) -> Any:
     """Fetch one service with the cache fallback disabled."""
-    if name == "policy_rates":
-        return await client.fetch_policy_rates(lookback_months=6, force_live=True)
-    if name == "money_supply":
-        return await client.fetch_money_supply(lookback_months=6, force_live=True)
-    if name == "system_liquidity":
-        return await client.fetch_system_liquidity(lookback_months=6, force_live=True)
-    if name == "monetary_stance":
-        return await client.fetch_monetary_stance_snapshot(force_live=True)
-    raise ValueError(f"Unknown monetary service: {name}")
+    return await _fetch_service(name, force_live=True)
 
 
 def _ingest_dataset(
@@ -173,7 +176,7 @@ async def monetary_agent_node(state: dict[str, Any]) -> dict[str, Any]:
     fetch_order = [name for name in names if name in selected and name != "monetary_stance"]
     if force_live:
         results = await asyncio.gather(
-            *(_fetch_forced_live(name) for name in fetch_order),
+            *(_fetch_service(name, force_live=True) for name in fetch_order),
             return_exceptions=True,
         )
     else:
@@ -211,11 +214,7 @@ async def monetary_agent_node(state: dict[str, Any]) -> dict[str, Any]:
         )
         if stance_record is None:
             try:
-                fallback = (
-                    await _fetch_forced_live("monetary_stance")
-                    if force_live
-                    else await _FETCHERS["monetary_stance"]()
-                )
+                fallback = await _fetch_service("monetary_stance", force_live=force_live)
                 _ingest_dataset(
                     "monetary_stance",
                     [record_to_dict(item) for item in fallback],

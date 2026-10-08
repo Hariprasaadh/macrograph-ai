@@ -18,6 +18,7 @@ from core.protocols.a2a.models import (
     TaskArtifactUpdateEvent,
 )
 from core.protocols.a2a.lifecycle import AgentExecutor, EventQueue
+from core.sector_reasoning import record_to_dict
 from labour_sector import client
 
 
@@ -70,9 +71,12 @@ class LabourEmploymentAgentExecutor(AgentExecutor):
             lfpr = results[1] if not isinstance(results[1], Exception) else []
             wpr = results[2] if not isinstance(results[2], Exception) else []
 
-            ur_val = unemp[0].unemployment_rate_pct if unemp else "N/A"
-            lfpr_val = lfpr[0].lfpr_total_pct if lfpr else "N/A"
-            wpr_val = wpr[0].wpr_total_pct if wpr else "N/A"
+            unemp_rec = record_to_dict(unemp[0]) if unemp else {}
+            lfpr_rec = record_to_dict(lfpr[0]) if lfpr else {}
+            wpr_rec = record_to_dict(wpr[0]) if wpr else {}
+            ur_val = unemp_rec.get("unemployment_rate_pct", "N/A")
+            lfpr_val = lfpr_rec.get("lfpr_total_pct", "N/A")
+            wpr_val = wpr_rec.get("wpr_total_pct", "N/A")
 
             report_md = (
                 "# Labour & Employment Sector Intelligence Report\n\n"
@@ -82,9 +86,9 @@ class LabourEmploymentAgentExecutor(AgentExecutor):
                 f"- **Worker Population Ratio (WPR)**: {wpr_val}%\n\n"
                 "| Indicator | Value | Unit | Period | Source |\n"
                 "| :--- | :--- | :--- | :--- | :--- |\n"
-                f"| Unemployment Rate | {ur_val}% | % | {unemp[0].period if unemp else 'N/A'} | MoSPI PLFS |\n"
-                f"| LFPR | {lfpr_val}% | % | {lfpr[0].period if lfpr else 'N/A'} | MoSPI PLFS |\n"
-                f"| WPR | {wpr_val}% | % | {wpr[0].period if wpr else 'N/A'} | MoSPI PLFS |\n"
+                f"| Unemployment Rate | {ur_val}% | % | {unemp_rec.get('period', 'N/A')} | MoSPI PLFS |\n"
+                f"| LFPR | {lfpr_val}% | % | {lfpr_rec.get('period', 'N/A')} | MoSPI PLFS |\n"
+                f"| WPR | {wpr_val}% | % | {wpr_rec.get('period', 'N/A')} | MoSPI PLFS |\n"
             )
 
             artifact = A2AArtifact(
@@ -116,7 +120,7 @@ class LabourEmploymentAgentExecutor(AgentExecutor):
             await event_queue.emit(
                 TaskStatusUpdateEvent(task_id=task_id, status=TaskState.FAILED, message=str(exc), timestamp=datetime.now(timezone.utc))
             )
-            return TaskResponse(task_id=task_id, status=TaskState.FAILED, messages=[], artifacts=[])
+            return TaskResponse(task_id=task_id, status=TaskState.FAILED, messages=[], artifacts=[], error=str(exc))
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> bool:
         return True

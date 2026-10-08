@@ -20,7 +20,8 @@ import {
   Receipt,
   type LucideIcon,
 } from 'lucide-react';
-import { ChatMessage, StreamStep } from '../types';
+import { A2ASummary, ChatMessage, CitationItem, StreamStep } from '../types';
+import { A2ATracePanel } from './A2ATracePanel';
 import { SECTOR_AGENTS } from '../data/agents';
 
 interface ChatWorkspaceProps {
@@ -347,6 +348,36 @@ const SUGGESTED_PROMPTS: Record<string, { text: string }[]> = {
   ],
 };
 
+interface StreamEvent {
+  type: 'step' | 'token' | 'done';
+  step: number;
+  agent?: string;
+  tool?: string;
+  request_id?: string;
+  status?: string;
+  title: string;
+  detail: string;
+  text: string;
+  full_report?: string;
+  agent_routed?: string;
+  citations?: CitationItem[];
+  observations?: ChatMessage['observations'];
+  mermaid_diagram?: string;
+  confidence_score?: number | null;
+  freshness?: Record<string, string>;
+  a2a?: A2ASummary;
+}
+
+type DonePayload = StreamEvent;
+
+// A2A steps are updated in place as their request progresses; other steps append.
+function upsertStep(steps: StreamStep[], next: StreamStep): StreamStep[] {
+  if (!next.request_id) return [...steps, next];
+  const index = steps.findIndex((s) => s.request_id === next.request_id);
+  if (index === -1) return [...steps, next];
+  return steps.map((s, i) => (i === index ? { ...next, step: s.step } : s));
+}
+
 export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   selectedAgentId,
   onSelectAgent,
@@ -455,7 +486,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       const decoder = new TextDecoder();
       let accumulatedText = '';
       let receivedSteps: StreamStep[] = [];
-      let finalDonePayload: any = null;
+      let finalDonePayload: DonePayload | null = null;
 
       if (reader) {
         let buffer = '';
@@ -473,7 +504,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
               if (!dataStr) continue;
 
               try {
-                const event = JSON.parse(dataStr);
+                const event = JSON.parse(dataStr) as StreamEvent;
 
                 if (event.type === 'step') {
                   const newStep: StreamStep = {
@@ -482,9 +513,10 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                     tool: event.tool,
                     title: event.title,
                     detail: event.detail,
-                    status: 'running',
+                    request_id: event.request_id,
+                    status: (event.status as StreamStep['status']) ?? 'running',
                   };
-                  receivedSteps = [...receivedSteps, newStep];
+                  receivedSteps = upsertStep(receivedSteps, newStep);
                   setActiveSteps(receivedSteps);
                 } else if (event.type === 'token') {
                   accumulatedText += event.text;
@@ -503,8 +535,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 } else if (event.type === 'done') {
                   finalDonePayload = event;
                 }
-              } catch (e) {
-                // Ignore parse errors for partial chunks
+              } catch (parseError) {
+                console.warn('Skipping malformed stream event', parseError);
               }
             }
           }
@@ -529,7 +561,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 citations: finalDonePayload?.citations || [],
                 observations: finalDonePayload?.observations,
                 mermaidDiagram: finalDonePayload?.mermaid_diagram,
-                confidenceScore: finalDonePayload?.confidence_score,
+                confidenceScore: finalDonePayload?.confidence_score ?? undefined,
+                a2a: finalDonePayload?.a2a,
                 dataStatus: finalDonePayload?.status,
                 dataFreshness: finalDonePayload?.freshness,
                 isStreaming: false,
@@ -538,17 +571,18 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             : msg
         ),
       }));
-    } catch (err: any) {
-      if (err.name === 'AbortError') {
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
         return;
       }
+      const errMessage = err instanceof Error ? err.message : 'Unknown network error';
       setMessagesByAgent((prev) => ({
         ...prev,
         [currentAgent]: (prev[currentAgent] || []).map((msg) =>
           msg.id === botMessageId
             ? {
                 ...msg,
-                content: `### Research Request Incomplete\n\nAn error occurred while communicating with the agent: ${err.message || 'Unknown network error'}.`,
+                content: `### Research Request Incomplete\n\nAn error occurred while communicating with the agent: ${errMessage}.`,
                 dataStatus: SECTOR_WORKSPACE_DESCRIPTIONS[currentAgent] ? 'failed' : undefined,
                 dataFreshness: SECTOR_WORKSPACE_DESCRIPTIONS[currentAgent]
                   ? { source: 'unavailable' }
@@ -780,7 +814,13 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                       <div key={i} className="flex items-start gap-2">
                         <span
                           className={`mt-0.5 ${
-                            isNewSector ? 'text-emerald-400' : 'text-emerald-400'
+                            st.status === 'failed'
+                              ? 'text-rose-400'
+                              : st.status === 'partial'
+                              ? 'text-amber-400'
+                              : st.request_id && st.status === 'running'
+                              ? 'text-slate-400 animate-pulse'
+                              : 'text-emerald-400'
                           }`}
                         >
                           ●
@@ -955,6 +995,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 </div>
               )}
 
+              {message.a2a && <A2ATracePanel a2a={message.a2a} />}
+
               {/* Mermaid Diagram Box if provided */}
               {message.mermaidDiagram && (
                 <div className="mt-4 p-3 rounded-xl bg-slate-950 border border-white/10">
@@ -987,7 +1029,17 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             <div className="space-y-1.5 text-xs text-slate-300">
               {activeSteps.map((st, i) => (
                 <div key={i} className="flex items-center gap-2">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  <CheckCircle2
+                    className={`w-3.5 h-3.5 shrink-0 ${
+                      st.status === 'failed'
+                        ? 'text-rose-400'
+                        : st.status === 'partial'
+                        ? 'text-amber-400'
+                        : st.request_id && st.status === 'running'
+                        ? 'text-slate-500'
+                        : 'text-emerald-400'
+                    }`}
+                  />
                   <span className="font-semibold text-white">{st.title}:</span>
                   <span className="text-slate-400 truncate">{st.detail}</span>
                 </div>
@@ -1093,11 +1145,19 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 function formatMarkdown(text: string, wrapTables = false): string {
   if (!text) return '';
 
-  let html = text
+  // Escape first: report text embeds LLM output and third-party titles, which must never become markup.
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+  let html = escaped
     // Replace code blocks
     .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
     // Replace blockquotes (> block)
-    .replace(/^> (.*$)/gim, '<blockquote class="border-l-2 border-amber-400/80 bg-amber-500/5 p-2 rounded text-amber-200 text-xs my-2">$1</blockquote>')
+    .replace(/^&gt; (.*$)/gim, '<blockquote class="border-l-2 border-amber-400/80 bg-amber-500/5 p-2 rounded text-amber-200 text-xs my-2">$1</blockquote>')
     // Replace headers
     .replace(/^### (.*$)/gim, '<h3>$1</h3>')
     .replace(/^## (.*$)/gim, '<h2>$1</h2>')

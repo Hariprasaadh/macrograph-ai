@@ -301,17 +301,21 @@ def upsert_rows(table: str, rows: list[dict[str, Any]]) -> int:
     update_cols = [c for c in columns if c not in _unique_set]
     set_clause = ", ".join(f"{c} = excluded.{c}" for c in update_cols)
 
+    sql = (
+        f"INSERT INTO {table} ({col_list})"
+        f" VALUES ({placeholders})"
+        f" ON CONFLICT ({conflict_target}) DO UPDATE SET {set_clause}"
+    )
+    params = [[row[c] for c in columns] for row in serialised]
+
     with get_connection() as con:
-        for row in serialised:
-            values = [row[c] for c in columns]
-            con.execute(
-                f"""
-                INSERT INTO {table} ({col_list})
-                VALUES ({placeholders})
-                ON CONFLICT ({conflict_target}) DO UPDATE SET {set_clause}
-                """,
-                values,
-            )
+        con.execute("BEGIN TRANSACTION")
+        try:
+            con.executemany(sql, params)
+            con.execute("COMMIT")
+        except Exception:
+            con.execute("ROLLBACK")
+            raise
 
     return len(serialised)
 
