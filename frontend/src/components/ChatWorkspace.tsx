@@ -4,7 +4,6 @@ import {
   Sparkles,
   User,
   ShieldCheck,
-  Cpu,
   CheckCircle2,
   RefreshCw,
   Network,
@@ -22,6 +21,9 @@ import {
 } from 'lucide-react';
 import { A2ASummary, ChatMessage, CitationItem, StreamStep } from '../types';
 import { A2ATracePanel } from './A2ATracePanel';
+import { MermaidDiagram } from './MermaidDiagram';
+import { MarkdownMessage } from './chat/MarkdownMessage';
+import { CopyButton } from './chat/CopyButton';
 import { SECTOR_AGENTS } from '../data/agents';
 
 interface ChatWorkspaceProps {
@@ -601,8 +603,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   return (
     <div className="flex-1 flex flex-col h-screen bg-background overflow-hidden">
       {/* Top Header */}
-      <div className="h-16 px-6 border-b border-white/5 bg-slate-950/80 backdrop-blur-xl flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-3">
+      <div className="min-h-16 px-3 py-2 sm:px-6 border-b border-white/5 bg-slate-950/80 backdrop-blur-xl flex flex-wrap items-center justify-between gap-x-4 gap-y-2 shrink-0">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
           <div
             className={`w-9 h-9 rounded-xl flex items-center justify-center font-mono font-bold text-xs shrink-0 ${
               isFinance
@@ -638,7 +640,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                   : `${selectedAgent.name} Specialist`}
               </span>
               <span
-                className={`text-[10px] font-mono uppercase px-2 py-0.5 rounded-full font-medium whitespace-nowrap shrink-0 ${
+                className={`hidden lg:inline-block text-[10px] font-mono uppercase px-2 py-0.5 rounded-full font-medium whitespace-nowrap shrink-0 ${
                   isFinance
                     ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
                     : isFiscal
@@ -682,7 +684,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         <div
           role="group"
           aria-label="Switch active agent"
-          className="flex items-center gap-1.5 bg-slate-950/90 p-1.5 rounded-2xl border border-white/10 text-xs max-w-[55%] overflow-x-auto shadow-inner select-none"
+          className="flex w-full items-center gap-1.5 overflow-x-auto rounded-2xl border border-white/10 bg-slate-950/90 p-1.5 text-xs shadow-inner select-none sm:w-auto sm:max-w-[55%]"
         >
           {SECTOR_AGENTS.filter((agent) => agent.status === 'active').map((agent) => {
             const isSelected = selectedAgentId === agent.id;
@@ -706,17 +708,22 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       </div>
 
       {/* Messages Scroll Area */}
-      <div role="log" aria-live="polite" aria-label="Research conversation" className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
+      <div
+        role="log"
+        aria-live="polite"
+        aria-label="Research conversation"
+        className="flex-1 min-w-0 overflow-x-hidden overflow-y-auto scroll-smooth px-3 py-5 sm:px-6 md:py-8 space-y-7"
+      >
         {currentMessages.map((message) => (
           <div
             key={message.id}
-            className={`cv-auto flex gap-3 max-w-4xl mx-auto ${
+            className={`cv-auto flex w-full min-w-0 gap-3 max-w-4xl mx-auto ${
               message.role === 'user' ? 'justify-end' : 'justify-start'
             }`}
           >
             {message.role === 'assistant' && (
               <div
-                className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 text-xs font-mono font-bold mt-1 ${
+                className={`w-8 h-8 rounded-xl hidden sm:flex items-center justify-center shrink-0 text-xs font-mono font-bold mt-1 ${
                   message.agentRouted?.includes('Finance')
                     ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
                     : message.agentRouted?.includes('Fiscal')
@@ -748,10 +755,10 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             )}
 
             <div
-              className={`p-5 rounded-2xl max-w-3xl ${
+              className={`min-w-0 rounded-2xl ${
                 message.role === 'user'
-                  ? 'bg-gradient-to-r from-brand-600 to-indigo-600 text-white shadow-glow-brand/20 ml-12'
-                  : 'glass-panel text-slate-200 border border-white/10 shadow-glass mr-6 w-full'
+                  ? 'max-w-[85%] bg-gradient-to-br from-brand-600 to-indigo-600 px-4 py-3 text-white shadow-glow-brand/20 sm:max-w-xl'
+                  : 'flex-1 overflow-hidden border border-white/10 bg-slate-950/55 p-4 text-slate-200 shadow-glass backdrop-blur-xl sm:p-6'
               }`}
             >
               {message.role === 'assistant' && (
@@ -842,15 +849,16 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                   <div className="skeleton h-4 rounded-lg w-9/12" />
                   <div className="skeleton h-4 rounded-lg w-10/12" />
                 </div>
+              ) : message.role === 'user' ? (
+                <p className="whitespace-pre-wrap text-sm leading-relaxed [overflow-wrap:anywhere]">{message.content}</p>
               ) : (
-                <div
-                  className={`prose prose-invert prose-custom max-w-none text-sm text-slate-200 leading-relaxed ${
-                    selectedAgentId === 'capital_market_sector' ? 'capital-market-response' : ''
-                  }`}
-                  dangerouslySetInnerHTML={{
-                    __html: formatMarkdown(message.content, selectedAgentId === 'capital_market_sector'),
-                  }}
-                />
+                <MarkdownMessage content={message.content} isStreaming={message.isStreaming} />
+              )}
+
+              {message.role === 'assistant' && !message.isStreaming && message.content && !message.id.startsWith('welcome-') && (
+                <div className="mt-4 flex items-center justify-end border-t border-white/5 pt-3">
+                  <CopyButton text={message.content} label="Copy report" />
+                </div>
               )}
 
               {isNewSector && message.dataFreshness && (
@@ -997,22 +1005,14 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 
               {message.a2a && <A2ATracePanel a2a={message.a2a} />}
 
-              {/* Mermaid Diagram Box if provided */}
-              {message.mermaidDiagram && (
-                <div className="mt-4 p-3 rounded-xl bg-slate-950 border border-white/10">
-                  <div className="text-xs font-mono text-cyan-400 font-semibold mb-1 flex items-center gap-1.5">
-                    <Cpu className="w-3.5 h-3.5" />
-                    <span>Causal Transmission Path (Mermaid Graph)</span>
-                  </div>
-                  <pre className="text-[11px] font-mono text-slate-300 overflow-x-auto p-2 bg-slate-900/60 rounded">
-                    <code>{message.mermaidDiagram}</code>
-                  </pre>
-                </div>
+              {/* Reports embed the diagram inline as a mermaid fence; only append it when the text has none */}
+              {message.mermaidDiagram && !message.content.includes('```mermaid') && (
+                <MermaidDiagram code={message.mermaidDiagram} title="Causal Transmission Path" />
               )}
             </div>
 
             {message.role === 'user' && (
-              <div className="w-8 h-8 rounded-xl bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 flex items-center justify-center shrink-0 text-xs font-bold mt-1">
+              <div className="w-8 h-8 rounded-xl bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 hidden sm:flex items-center justify-center shrink-0 text-xs font-bold mt-1">
                 <User className="w-4 h-4" />
               </div>
             )}
@@ -1140,67 +1140,3 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     </div>
   );
 };
-
-// Helper: Basic Markdown Parser for clean display
-function formatMarkdown(text: string, wrapTables = false): string {
-  if (!text) return '';
-
-  // Escape first: report text embeds LLM output and third-party titles, which must never become markup.
-  const escaped = text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-
-  let html = escaped
-    // Replace code blocks
-    .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
-    // Replace blockquotes (> block)
-    .replace(/^&gt; (.*$)/gim, '<blockquote class="border-l-2 border-amber-400/80 bg-amber-500/5 p-2 rounded text-amber-200 text-xs my-2">$1</blockquote>')
-    // Replace headers
-    .replace(/^### (.*$)/gim, '<h3>$1</h3>')
-    .replace(/^## (.*$)/gim, '<h2>$1</h2>')
-    .replace(/^# (.*$)/gim, '<h1>$1</h1>')
-    // Bold and italics
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.*?)\*/g, '<em>$1</em>')
-    // Tables (Markdown table syntax converter)
-    .replace(
-      /\|(.+)\|\n\|[-:| ]+\|\n((?:\|.+\|\n?)+)/g,
-      (_match, header, body) => {
-        const headers = header
-          .split('|')
-          .filter((h: string) => h.trim())
-          .map((h: string) => `<th>${h.trim()}</th>`)
-          .join('');
-        const rows = body
-          .trim()
-          .split('\n')
-          .map((row: string) => {
-            const cols = row
-              .split('|')
-              .filter((c: string) => c.trim())
-              .map((c: string) => `<td>${c.trim()}</td>`)
-              .join('');
-            return `<tr>${cols}</tr>`;
-          })
-          .join('');
-        const table = `<table><thead><tr>${headers}</tr></thead><tbody>${rows}</tbody></table>`;
-        return wrapTables
-          ? `<div class="capital-market-table-scroll" role="region" aria-label="Scrollable market data table" tabindex="0">${table}</div>`
-          : table;
-      }
-    )
-    // Bullet lists ("- " and "1. " markers; the model emits both)
-    .replace(/^\- (.*$)/gim, '<li>$1</li>')
-    .replace(/^\d+\. (.*$)/gim, '<li>$1</li>')
-    // Wrap consecutive list items in <ul>
-    .replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>')
-    // Line breaks: blank line = paragraph gap, single newline = visible break
-    // (HTML collapses raw "\n", which previously glued everything into one line)
-    .replace(/\n\n/g, '<br><br>')
-    .replace(/\n/g, '<br>');
-
-  return html;
-}

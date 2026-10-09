@@ -626,6 +626,21 @@ wheels = [
 ]
 
 [[package]]
+name = "eco-policy-mcp"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "fastmcp" },
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "tzdata" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/98/2b/74874e038e24a4f5cdda0ca945327b022db735d9f37bbf77861ed91644cc/eco_policy_mcp-0.1.0.tar.gz", hash = "sha256:41115bc73bc31f486050c89ba69f7ecb59b0550e15e068a00fe0614ba83cf4a7", size = 114726, upload-time = "2026-09-13T09:52:43.334Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/93/be/e5f5850595ca3c5e629b22dc90a9480f0d92b9025ad027376b7e31ccbb27/eco_policy_mcp-0.1.0-py3-none-any.whl", hash = "sha256:0fadca8dd673d9852b2a6e646539c20c4ee41e239e36df2098375fb16456d91e", size = 27427, upload-time = "2026-09-13T09:52:42.055Z" },
+]
+
+[[package]]
 name = "email-validator"
 version = "2.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1382,6 +1397,7 @@ dependencies = [
     { name = "a2a-sdk" },
     { name = "beautifulsoup4" },
     { name = "duckdb" },
+    { name = "eco-policy-mcp" },
     { name = "fastapi" },
     { name = "fastmcp" },
     { name = "groq" },
@@ -1413,6 +1429,9 @@ dependencies = [
 agriculture = [
     { name = "agmarknet-mcp" },
 ]
+neo4j = [
+    { name = "neo4j" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -1420,6 +1439,7 @@ requires-dist = [
     { name = "agmarknet-mcp", marker = "extra == 'agriculture'", git = "https://github.com/Krishna-Baldwa/agmarket-mcp.git?rev=ad4e9b5c38f0fb45565c6ccf4c3ad706371fd891" },
     { name = "beautifulsoup4", specifier = ">=4.12.0" },
     { name = "duckdb", specifier = ">=1.1.0" },
+    { name = "eco-policy-mcp", specifier = ">=0.1.0" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "fastmcp", specifier = ">=3.4.0" },
     { name = "groq", specifier = ">=0.37.0" },
@@ -1429,6 +1449,7 @@ requires-dist = [
     { name = "langchain-groq", specifier = ">=1.1.0" },
     { name = "langgraph", specifier = ">=1.2.0" },
     { name = "lxml", specifier = ">=5.2.0" },
+    { name = "neo4j", marker = "extra == 'neo4j'", specifier = ">=5.20.0" },
     { name = "networkx", specifier = ">=3.4.0" },
     { name = "numpy", specifier = ">=1.26.0" },
     { name = "pandas", specifier = ">=2.2.0" },
@@ -1446,7 +1467,7 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30.0" },
     { name = "yfinance", specifier = ">=0.2.40" },
 ]
-provides-extras = ["agriculture"]
+provides-extras = ["agriculture", "neo4j"]
 
 [[package]]
 name = "markdown-it-py"
@@ -1532,6 +1553,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/35/68/5351e34623d253423240ea7de3f8fc74fa8ab14b1ab3c0ec4ac8997413c9/narwhals-2.26.0.tar.gz", hash = "sha256:6b9cadca82f375c7e4cf584fdc86ca25da54827307a9c58f94547ee6104b82dd", size = 686970, upload-time = "2026-09-08T13:32:08.964Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/40/b5/1b84b2c784db76d69442334bc8b8748c840f13ca53be086f4f250ad4a0bc/narwhals-2.26.0-py3-none-any.whl", hash = "sha256:29326d74f107c347fd1009bd58e38d9f7c7c5b51e6de97bc93dbc325d9038b54", size = 474034, upload-time = "2026-09-08T13:32:07.159Z" },
+]
+
+[[package]]
+name = "neo4j"
+version = "6.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pytz" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/80/db/024bd576bde5d97436d0acb71b41cf928c036ed8fec95ea1122eb05e47d1/neo4j-6.4.0.tar.gz", hash = "sha256:056676698f080b5af5b24b0fc5abb485b8db1b95edf366d01dcfd63bcff9b71d", size = 287786, upload-time = "2026-10-05T15:37:45.216Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c9/5d/519aefe3b38a490924641e980a16ea6c70f6c96c08d84cf661d32c4a08c2/neo4j-6.4.0-py3-none-any.whl", hash = "sha256:fdd048ba827be138063b045cf59e40056fbf0405ac02dadc24f64e369fbd9d3d", size = 390611, upload-time = "2026-10-05T15:37:43.491Z" },
 ]
 
 [[package]]

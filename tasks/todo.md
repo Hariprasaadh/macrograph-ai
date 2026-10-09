@@ -71,3 +71,17 @@
   - Strict citation and zero-hallucination policy enforced across all rendered statistics.
 
 
+
+## Knowledge Graph hardening (Causal GraphRAG)
+- [x] llm_client: add missing `import os` (NameError when no Groq key); offline notice wording fixed.
+- [x] schema: ID regex, frequency whitelist, sign `+`/`-`, mechanism min length, non-empty assumptions, p-value rule (None only for THEORY), self-loop guard.
+- [x] ontology: stable `rel-<8 hex>` IDs (uuid5), `validate()` rejects self-loops/unknown endpoints/duplicate IDs.
+- [x] networkx_engine: 4-key neighborhood shape for known and unknown nodes; `has_node`.
+- [x] causal_engine: first-seen-order provenance; Granger failure results carry cause/effect.
+- [x] neo4j_store: lazy, settings-only, optional (`NEO4J_URI` empty disables), `AFFECTS` schema, `sync_ontology` is the only write path; synced at gateway startup when enabled; `neo4j` optional extra in pyproject.
+- [x] orchestrator: deterministic first-seen indicator order, pair only KG-known IDs (no 20-pair cap), synthesis prompt carries paths/relation_ids/mechanisms/scenario, causal-path table, verbatim taxonomy line, deterministic offline fallback, documentary evidence marked unavailable.
+- [x] API: typed `ScenarioShock`, `Simulation error:` detail, `neo4j_enabled` in /health, causal_paths/scenario_result in chat payloads.
+- [x] canonical_ids: removed wrong `manufacturing_gva -> gdp_growth` alias.
+- [x] Tests: test_kg_schema, test_kg_networkx, test_causal_engine, test_kg_neo4j, test_kg_orchestrator, test_kg_api, test_llm_client.
+- [ ] Follow-ups: regenerate `uv.lock` (`uv lock`) for the neo4j extra; fix KnowledgeGraphView field names and render Mermaid in the UI; Qdrant documentary evidence; real/agri/labour sectors emitting seed IDs.
+- [x] Live E2E fixes: sector-native IDs alias onto ontology; live observations seed scenario baselines; prompt carries shocked_peak; KnowledgeGraphView rewritten against real API shape; uv.lock regenerated. 

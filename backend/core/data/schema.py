@@ -9,10 +9,19 @@ from datetime import datetime, timezone
 from enum import Enum
 import hashlib
 import json
+import re
 from typing import Any, Dict, List, Optional, Union
 import uuid
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+INDICATOR_ID_PATTERN = re.compile(r"^in\.macro\.[a-z_]+\.[a-z_0-9]+$")
+RELATION_ID_PATTERN = re.compile(r"^rel-[0-9a-f]{8}$")
+VALID_FREQUENCIES = frozenset({
+    "daily", "weekly", "fortnightly", "monthly", "quarterly", "annual", "seasonal", "policy_cycle",
+})
+VALID_ELASTICITY_SIGNS = frozenset({"+", "-"})
+MIN_MECHANISM_LENGTH = 10
 
 
 class SectorEnum(str, Enum):
@@ -62,6 +71,20 @@ class CanonicalIndicator(BaseModel):
     source_url: Optional[str] = Field(default=None, description="Official portal or dataset URL")
     description: Optional[str] = Field(default=None, description="Economic description of indicator")
 
+    @field_validator("indicator_id")
+    @classmethod
+    def _validate_indicator_id(cls, value: str) -> str:
+        if not INDICATOR_ID_PATTERN.match(value):
+            raise ValueError(f"indicator_id must match {INDICATOR_ID_PATTERN.pattern}: {value!r}")
+        return value
+
+    @field_validator("frequency")
+    @classmethod
+    def _validate_frequency(cls, value: str) -> str:
+        if value not in VALID_FREQUENCIES:
+            raise ValueError(f"frequency must be one of {sorted(VALID_FREQUENCIES)}: {value!r}")
+        return value
+
 
 # 2. Canonical Observation (Empirical Data Point)
 class CanonicalObservation(BaseModel):
@@ -104,11 +127,56 @@ class CausalRelationship(BaseModel):
     target_indicator_id: str = Field(..., description="Downstream response indicator ID")
     relation_type: CausalRelationType = Field(..., description="Causal classification level")
     transmission_lag_months: int = Field(default=0, ge=0, description="Estimated transmission lag in months")
-    elasticity_sign: str = Field(default="+", description="Directional sign: '+' (positive), '-' (inverse), or 'ambiguous'")
-    empirical_p_value: Optional[float] = Field(default=None, description="Statistical significance p-value if empirical")
+    elasticity_sign: str = Field(default="+", description="Directional sign: '+' (positive) or '-' (inverse)")
+    empirical_p_value: Optional[float] = Field(
+        default=None, description="Statistical significance p-value; may be None only for THEORY"
+    )
     confidence_score: float = Field(default=0.8, ge=0.0, le=1.0, description="Confidence in transmission link")
     mechanism_description: str = Field(..., description="Economic mechanism explanation")
     documented_assumptions: List[str] = Field(default_factory=list, description="Causal assumptions / identification bounds")
+
+    @field_validator("relation_id")
+    @classmethod
+    def _validate_relation_id(cls, value: str) -> str:
+        if not RELATION_ID_PATTERN.match(value):
+            raise ValueError(f"relation_id must match rel-<8 hex>: {value!r}")
+        return value
+
+    @field_validator("source_indicator_id", "target_indicator_id")
+    @classmethod
+    def _validate_endpoint_id(cls, value: str) -> str:
+        if not INDICATOR_ID_PATTERN.match(value):
+            raise ValueError(f"indicator id must match {INDICATOR_ID_PATTERN.pattern}: {value!r}")
+        return value
+
+    @field_validator("elasticity_sign")
+    @classmethod
+    def _validate_sign(cls, value: str) -> str:
+        if value not in VALID_ELASTICITY_SIGNS:
+            raise ValueError(f"elasticity_sign must be '+' or '-': {value!r}")
+        return value
+
+    @field_validator("mechanism_description")
+    @classmethod
+    def _validate_mechanism(cls, value: str) -> str:
+        if len(value.strip()) < MIN_MECHANISM_LENGTH:
+            raise ValueError(f"mechanism_description needs at least {MIN_MECHANISM_LENGTH} characters")
+        return value
+
+    @field_validator("documented_assumptions")
+    @classmethod
+    def _validate_assumptions(cls, value: List[str]) -> List[str]:
+        if not any(item.strip() for item in value):
+            raise ValueError("documented_assumptions needs at least one non-empty assumption")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_relationship(self) -> "CausalRelationship":
+        if self.source_indicator_id == self.target_indicator_id:
+            raise ValueError("self-loop relationships are not allowed")
+        if self.empirical_p_value is None and self.relation_type != CausalRelationType.THEORY:
+            raise ValueError("empirical_p_value may be None only for THEORY relationships")
+        return self
 
 
 # 4. Scenario Simulation Result

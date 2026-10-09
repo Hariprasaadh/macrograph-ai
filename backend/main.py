@@ -21,6 +21,7 @@ from core.protocols.a2a import agent_registry
 from core.protocols.a2a.dependencies import CROSS_SECTOR_DEPENDENCIES
 from core.protocols.a2a.api import router as a2a_api_router
 from core.knowledge_graph.networkx_engine import graph_engine
+from core.knowledge_graph.neo4j_store import neo4j_store
 from core.econometrics.causal_engine import causal_engine
 from core.orchestrator.graph import macro_orchestrator_graph
 from core.orchestrator.state import OrchestratorState
@@ -50,8 +51,12 @@ from prices_sector.agent import prices_agent_node, is_direct_prices_query
 @asynccontextmanager
 async def gateway_lifespan(application: FastAPI):
     # Mounted sub-app lifespans are not run by FastAPI automatically.
+    if neo4j_store.enabled:
+        synced = await run_in_threadpool(neo4j_store.sync_ontology)
+        logging.getLogger(__name__).info("Neo4j ontology mirror sync ok=%s", synced)
     async with agriculture_mcp_http.lifespan(agriculture_mcp_http):
         yield
+    neo4j_store.close()
 
 app = FastAPI(
     title="Macrograph AI — Indian Macroeconomic Intelligence Platform",
@@ -130,9 +135,15 @@ for _mod_name, _app_attr, _prefix in _optional_sectors:
 # -----------------------------------------------------------------------------
 # Request & Response Models
 # -----------------------------------------------------------------------------
+class ScenarioShock(BaseModel):
+    variable: str = Field(default="in.macro.prices.brent_crude", description="Canonical indicator ID to shock")
+    magnitude: float = Field(default=20.0, description="Shock size in indicator units")
+    name: str = Field(default="Simulated Macro Shock", description="Scenario label")
+
+
 class AnalyzeRequest(BaseModel):
     query: str = Field(..., description="Macroeconomic research query")
-    scenario_shock: Optional[Dict[str, Any]] = Field(
+    scenario_shock: Optional[ScenarioShock] = Field(
         default=None,
         description="Optional scenario shock, e.g. {'variable': 'in.macro.prices.brent_crude', 'magnitude': 20.0, 'name': 'Oil Surge'}"
     )
@@ -165,8 +176,8 @@ def root() -> Dict[str, Any]:
             "external_sector": "/external-sector",
             "monetary_sector": "/monetary-sector",
         },
-        "chat_endpoint": "/api/chat",
-        "analyze_endpoint": "/api/analyze",
+        "chat_endpoint": "/api/v1/chat",
+        "analyze_endpoint": "/api/v1/analyze",
     }
 
 
@@ -180,6 +191,7 @@ def health_check() -> Dict[str, Any]:
         "sectors_active": active_count if active_count > 0 else 8,
         "knowledge_graph_nodes": graph_engine.graph.number_of_nodes(),
         "knowledge_graph_edges": graph_engine.graph.number_of_edges(),
+        "neo4j_enabled": neo4j_store.enabled,
     }
 
 
@@ -188,7 +200,7 @@ async def analyze_macro_query(request: AnalyzeRequest) -> Dict[str, Any]:
     """Executes the LangGraph multi-agent research workflow asynchronously."""
     initial_state: OrchestratorState = {
         "query": request.query,
-        "scenario_shock": request.scenario_shock,
+        "scenario_shock": request.scenario_shock.model_dump() if request.scenario_shock else None,
         "status": "started"
     }
 
@@ -225,7 +237,7 @@ async def simulate_scenario(request: ScenarioSimulateRequest) -> Dict[str, Any]:
         return res.model_dump()
     except Exception as err:
         logging.getLogger("macrograph.main").exception("Simulation error for scenario=%s", request.scenario_name)
-        raise HTTPException(status_code=500, detail="An internal simulation error occurred. Please try again.")
+        raise HTTPException(status_code=500, detail="Simulation error: internal failure")
 
 
 @app.get("/api/v1/kg/path", tags=["Knowledge Graph"])

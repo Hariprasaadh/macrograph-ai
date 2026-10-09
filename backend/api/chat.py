@@ -279,6 +279,8 @@ async def stream_chat(request: ChatMessageRequest):
                 "citations": citations,
                 "observations": collected_obs,
                 "mermaid_diagram": mermaid_diag,
+                "causal_paths": final_state.get("causal_paths", []),
+                "scenario_result": final_state.get("scenario_result"),
                 "confidence_score": final_state.get("confidence_score"),
                 "a2a": a2a_summary(final_state),
             }
@@ -341,4 +343,6 @@ async def sync_chat(request: ChatMessageRequest) -> Dict[str, Any]:
             "citations": final_state.get("citations", []),
             "observations": final_state.get("collected_observations", []),
             "mermaid_diagram": final_state.get("mermaid_diagram", ""),
+            "causal_paths": final_state.get("causal_paths", []),
+            "scenario_result": final_state.get("scenario_result"),
         }

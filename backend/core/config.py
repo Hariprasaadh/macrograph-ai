@@ -61,10 +61,10 @@ class PlatformSettings(BaseSettings):
         default_factory=lambda: ["real_sector", "prices_sector", "monetary_sector"]
     )
 
-    # Persistent Knowledge Graph (Neo4j)
-    NEO4J_URI: str = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-    NEO4J_USER: str = os.getenv("NEO4J_USER", "neo4j")
-    NEO4J_PASSWORD: str = os.getenv("NEO4J_PASSWORD", "password")
+    # Optional persistent Knowledge Graph mirror; an empty NEO4J_URI disables it entirely.
+    NEO4J_URI: str = ""
+    NEO4J_USER: str = "neo4j"
+    NEO4J_PASSWORD: SecretStr = SecretStr("")
 
     # Staged 8-Sector Endpoints
     REAL_SECTOR_URL: str = "http://127.0.0.1:8000/real-sector"

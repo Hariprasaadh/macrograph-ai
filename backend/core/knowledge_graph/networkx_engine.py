@@ -1,10 +1,10 @@
 """High-Performance In-Memory Macroeconomic Graph Engine using NetworkX."""
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 import networkx as nx
 
-from ..data.schema import CanonicalIndicator, CausalRelationship
+from ..data.schema import CausalRelationship
 from .ontology import ontology, MacroeconomicOntology
 
 
@@ -46,6 +46,10 @@ class NetworkXGraphEngine:
                 mechanism=rel.mechanism_description
             )
 
+    def has_node(self, indicator_id: str) -> bool:
+        """True when the indicator is a canonical node of the knowledge graph."""
+        return self.graph.has_node(indicator_id)
+
     def get_shortest_transmission_path(self, source_id: str, target_id: str) -> List[CausalRelationship]:
         """Finds the most direct transmission chain between two macroeconomic indicators."""
         if not self.graph.has_node(source_id) or not self.graph.has_node(target_id):
@@ -68,29 +72,34 @@ class NetworkXGraphEngine:
 
     def get_causal_neighborhood(self, indicator_id: str, depth: int = 2) -> Dict[str, Any]:
         """Extracts upstream drivers and downstream recipients within a given hop distance."""
+        empty: Dict[str, Any] = {
+            "indicator_id": indicator_id,
+            "upstream": [],
+            "downstream": [],
+            "upstream_drivers": [],
+            "downstream_impacts": [],
+        }
         if not self.graph.has_node(indicator_id):
-            return {"indicator_id": indicator_id, "upstream": [], "downstream": []}
+            return empty
 
         # Upstream predecessors (causes)
-        predecessors = list(self.graph.predecessors(indicator_id))
         upstream_rels = []
-        for pred in predecessors:
-            edges = self.graph.get_edge_data(pred, indicator_id)
-            for e in edges.values():
+        for pred in self.graph.predecessors(indicator_id):
+            for e in self.graph.get_edge_data(pred, indicator_id).values():
                 upstream_rels.append(e["relation"].model_dump())
 
         # Downstream successors (effects)
-        successors = list(self.graph.successors(indicator_id))
         downstream_rels = []
-        for succ in successors:
-            edges = self.graph.get_edge_data(indicator_id, succ)
-            for e in edges.values():
+        for succ in self.graph.successors(indicator_id):
+            for e in self.graph.get_edge_data(indicator_id, succ).values():
                 downstream_rels.append(e["relation"].model_dump())
 
         return {
             "indicator_id": indicator_id,
+            "upstream": upstream_rels,
+            "downstream": downstream_rels,
             "upstream_drivers": upstream_rels,
-            "downstream_impacts": downstream_rels
+            "downstream_impacts": downstream_rels,
         }
 
     def get_downstream_impacts(self, shock_indicator_id: str) -> List[Dict[str, Any]]:

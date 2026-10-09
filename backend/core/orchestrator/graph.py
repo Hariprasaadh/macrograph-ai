@@ -6,7 +6,7 @@ FastMCP tool servers, Knowledge Graph transmission paths, and Causal Simulation.
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from langchain_core.runnables import RunnableLambda
 from langgraph.graph import END, StateGraph
 
@@ -14,7 +14,7 @@ from ..protocols.a2a import agent_registry, trace_store
 from ..protocols.a2a.messages import new_id
 from ..protocols.a2a.router import route_query
 from ..knowledge_graph.networkx_engine import graph_engine
-from ..econometrics.causal_engine import causal_engine
+from ..econometrics.causal_engine import DEFAULT_BASELINES, causal_engine
 from .llm_client import llm_client
 from .state import OrchestratorState
 from .a2a_dispatch import agents_for_sectors, aggregate, delegate, run_sync
@@ -80,9 +80,24 @@ def parallel_a2a_execute_node(state: OrchestratorState) -> Dict[str, Any]:
     return run_sync(parallel_a2a_execute_async(state))
 
 
-# Maximum indicator pairs explored in the KG per request. O(n^2) traversal
-# becomes expensive above this bound; the most important indicators appear first.
-_MAX_KG_INDICATOR_PAIRS = 20
+_UNUSABLE_STATUSES = ("unavailable", "unspecified", None)
+
+
+def _live_baselines(observations: List[Dict[str, Any]], kg_ids: List[str]) -> Dict[str, float]:
+    """First usable numeric observation per KG-known indicator; these override the fixed simulation defaults."""
+    live: Dict[str, float] = {}
+    for obs in observations:
+        indicator = obs.get("indicator_id")
+        value = obs.get("value")
+        if (
+            indicator in kg_ids
+            and indicator not in live
+            and isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and obs.get("data_status") not in _UNUSABLE_STATUSES
+        ):
+            live[indicator] = float(value)
+    return live
 
 
 # -----------------------------------------------------------------------------
@@ -91,7 +106,8 @@ _MAX_KG_INDICATOR_PAIRS = 20
 def kg_causal_enrichment_node(state: OrchestratorState) -> Dict[str, Any]:
     """Traverses Knowledge Graph transmission paths and runs impulse response scenario simulations."""
     collected_obs = state.get("collected_observations", [])
-    ind_ids = list(set([obs["indicator_id"] for obs in collected_obs]))
+    # First-seen order keeps path discovery and the Mermaid focus deterministic.
+    ind_ids = list(dict.fromkeys(obs["indicator_id"] for obs in collected_obs if obs.get("indicator_id")))
     scenario_shock = state.get("scenario_shock")
 
     # If scenario shock present, ensure shocked variable is included in graph exploration
@@ -100,18 +116,13 @@ def kg_causal_enrichment_node(state: OrchestratorState) -> Dict[str, Any]:
         if shock_var not in ind_ids:
             ind_ids.append(shock_var)
 
-    # Discover transmission paths in NetworkX Knowledge Graph.
-    # Cap at _MAX_KG_INDICATOR_PAIRS to avoid O(n^2) PathFinder calls.
+    # Only canonical KG nodes can have transmission paths; non-ontology IDs would just return [].
+    kg_ids = [i for i in ind_ids if graph_engine.has_node(i)]
     causal_paths = []
-    sampled = ind_ids[:10]  # first 10 keeps pairs <= 90, well inside limit
-    pairs_checked = 0
-    for u in sampled:
-        for v in sampled:
+    for u in kg_ids:
+        for v in kg_ids:
             if u == v:
                 continue
-            if pairs_checked >= _MAX_KG_INDICATOR_PAIRS:
-                break
-            pairs_checked += 1
             path = graph_engine.get_shortest_transmission_path(u, v)
             if path:
                 causal_paths.append({
@@ -121,31 +132,103 @@ def kg_causal_enrichment_node(state: OrchestratorState) -> Dict[str, Any]:
                     "total_lag_months": sum(r.transmission_lag_months for r in path),
                     "relations": [r.model_dump() for r in path],
                 })
-        else:
-            continue
-        break
 
     # Execute Scenario Simulation if shock provided
     scenario_result = None
+    live_baselines: Dict[str, float] = {}
     if scenario_shock:
         shock_var = scenario_shock.get("variable", "in.macro.prices.brent_crude")
         magnitude = float(scenario_shock.get("magnitude", 20.0))
         name = scenario_shock.get("name", "Simulated Macro Shock")
-        res = causal_engine.simulate_scenario(scenario_name=name, shock_variable=shock_var, shock_magnitude=magnitude)
+        # Sector-owned live observations replace the fixed defaults so the report never contradicts itself.
+        live_baselines = _live_baselines(collected_obs, kg_ids)
+        res = causal_engine.simulate_scenario(
+            scenario_name=name,
+            shock_variable=shock_var,
+            shock_magnitude=magnitude,
+            baseline_values={**DEFAULT_BASELINES, **live_baselines},
+        )
         scenario_result = res.model_dump()
 
     # Dynamic Mermaid diagram syntax
-    mermaid_diag = graph_engine.generate_mermaid_diagram(focus_indicator_ids=ind_ids[:5] if ind_ids else None)
+    mermaid_diag = graph_engine.generate_mermaid_diagram(focus_indicator_ids=kg_ids[:5] or None)
 
     return {
         "causal_paths": causal_paths,
         "scenario_result": scenario_result,
         "mermaid_diagram": mermaid_diag,
+        "live_baseline_ids": list(live_baselines),
         "status": "enriched"
     }
 
 
 _REPORT_EXCERPT_CHARS = 1500
+_TAXONOMY_NOTE = (
+    "Transmission edges classified according to 5-tier taxonomy "
+    "(THEORY -> STATISTICAL -> LAGGED -> GRANGER -> STRUCTURAL_CAUSAL_MODEL)."
+)
+_DOCS_UNAVAILABLE = "Documentary evidence: unavailable (no document store is configured); no quotations are provided."
+_SYNTHESIS_SYSTEM_PROMPT = (
+    "You are a senior Indian macroeconomic intelligence analyst. Use ONLY the numbers, causal paths and "
+    "scenario outputs supplied in the prompt. Cite the relation_id for every causal claim. Never invent "
+    "numbers, quotations or documents; state anything missing as unavailable."
+)
+
+
+def _path_label(path: Dict[str, Any]) -> str:
+    return f"{path['from']} -> {path['to']}"
+
+
+def _baseline_note(live_ids: List[str]) -> str:
+    if live_ids:
+        return f"live sector observations for {', '.join(live_ids)}; fixed simulation defaults for all other indicators"
+    return "fixed simulation defaults (no live observation matched a scenario indicator)"
+
+
+def _kg_prompt_block(
+    causal_paths: List[Dict[str, Any]], scenario_res: Optional[Dict[str, Any]], live_ids: List[str]
+) -> str:
+    """Renders KG structure (paths, relation_ids, mechanisms, scenario deltas) as grounded LLM context."""
+    if not causal_paths and not scenario_res:
+        return "Knowledge Graph: no transmission paths were found among the observed indicators.\n"
+    lines = [f"Knowledge Graph Causal Transmission Paths ({len(causal_paths)}):"]
+    for path in causal_paths:
+        lines.append(f"- {_path_label(path)} ({path['hops']} hops, {path['total_lag_months']}M total lag)")
+        for rel in path["relations"]:
+            lines.append(
+                f"    [{rel['relation_id']}] {rel['source_indicator_id']} -> {rel['target_indicator_id']} "
+                f"sign {rel['elasticity_sign']}, {rel['relation_type']}, confidence {rel['confidence_score']}: "
+                f"{rel['mechanism_description']}"
+            )
+    if scenario_res:
+        lines.append(f"Scenario '{scenario_res.get('scenario_name')}' (shock {scenario_res.get('shock_variable')} "
+                     f"{scenario_res.get('shock_magnitude'):+}); baselines: {_baseline_note(live_ids)}; "
+                     f"provenance relation_ids: {', '.join(scenario_res.get('provenance_chain', []))}")
+        lines.append("    Deltas and peaks are in each indicator's own unit; quote shocked_peak as given and never derive other levels.")
+        for tid, impact in scenario_res.get("forecasted_impacts", {}).items():
+            if tid != scenario_res.get("shock_variable"):
+                lines.append(
+                    f"    {tid}: baseline {impact.get('baseline')}, shocked_peak {impact.get('shocked_peak')}, "
+                    f"delta {impact.get('delta')}, band {impact.get('confidence_band')}, "
+                    f"lag {impact.get('transmission_lag_months')}M"
+                )
+    return "\n".join(lines) + "\n"
+
+
+def _offline_synthesis(
+    observations: List[Dict[str, Any]], causal_paths: List[Dict[str, Any]], scenario_res: Optional[Dict[str, Any]]
+) -> str:
+    """Deterministic summary built only from supplied observations and KG output (used when the LLM is unavailable)."""
+    lines = ["*LLM narrative unavailable; deterministic summary of retrieved evidence follows.*", ""]
+    lines.append(f"- Observations retrieved from sector agents: {len(observations)}.")
+    lines.append(f"- Causal transmission paths mapped in the knowledge graph: {len(causal_paths)}.")
+    for path in causal_paths:
+        ids = ", ".join(rel["relation_id"] for rel in path["relations"])
+        lines.append(f"  - `{_path_label(path)}`: {path['hops']} hops, {path['total_lag_months']}M lag (relations: {ids}).")
+    if scenario_res:
+        lines.append(f"- Scenario simulated: {scenario_res.get('scenario_name')} on `{scenario_res.get('shock_variable')}`.")
+    lines.append(f"- {_DOCS_UNAVAILABLE}")
+    return "\n".join(lines)
 
 
 # -----------------------------------------------------------------------------
@@ -159,6 +242,7 @@ def synthesis_node(state: OrchestratorState) -> Dict[str, Any]:
     scenario_res = state.get("scenario_result")
     mermaid_diag = state.get("mermaid_diagram", "")
     citations = state.get("citations", [])
+    live_ids = state.get("live_baseline_ids", [])
 
     obs_summary = "\n".join([
         f"- {o['indicator_id']}: {o['value']} {o['unit']} (Period: {o['observation_period']}, Status: {o['data_status']})"
@@ -175,7 +259,7 @@ def synthesis_node(state: OrchestratorState) -> Dict[str, Any]:
     prompt = (
         f"Synthesize a rigorous Indian macroeconomic research report answering: '{query}'\n\n"
         f"Verified A2A Domain Observations:\n{obs_summary}\n\n"
-        f"Knowledge Graph Causal Transmission Paths Mapped: {len(causal_paths)}\n"
+        f"{_kg_prompt_block(causal_paths, scenario_res, live_ids)}\n{_DOCS_UNAVAILABLE}\n"
     )
     if agent_reports:
         prompt += f"\nSector Agent Reports (A2A):\n{agent_reports}\n"
@@ -184,14 +268,13 @@ def synthesis_node(state: OrchestratorState) -> Dict[str, Any]:
             "\nSector agents that could not respond (state this explicitly; do not infer their data):\n"
             f"{unavailable}\n"
         )
-    if scenario_res:
-        prompt += f"\nScenario Simulation: {scenario_res.get('scenario_name')}\n"
-
     narrative_summary = llm_client.complete_sync(
         prompt=prompt,
-        system_prompt="You are a senior Indian macroeconomic intelligence analyst. Provide rigorous, source-attributed, data-driven synthesis without hardcoding numbers.",
+        system_prompt=_SYNTHESIS_SYSTEM_PROMPT,
         use_reasoning_model=True,
     )
+    if narrative_summary == llm_client._unavailable_notice():
+        narrative_summary = _offline_synthesis(observations, causal_paths, scenario_res)
 
     report_lines = [
         "# Indian Macroeconomic Intelligence Report\n",
@@ -212,15 +295,24 @@ def synthesis_node(state: OrchestratorState) -> Dict[str, Any]:
     report_lines.append(mermaid_diag)
     report_lines.append("```\n")
 
+    if causal_paths:
+        report_lines.append("| Causal Path | Hops | Total Lag | Relations (relation_id : type) |")
+        report_lines.append("| :--- | :--- | :--- | :--- |")
+        for path in causal_paths:
+            rels = ", ".join(f"`{r['relation_id']}` : {r['relation_type']}" for r in path["relations"])
+            report_lines.append(f"| `{_path_label(path)}` | {path['hops']} | {path['total_lag_months']}M | {rels} |")
+        report_lines.append("")
+
     if scenario_res:
         report_lines.append(f"## 4. Scenario Shock Simulation: {scenario_res.get('scenario_name')}\n")
-        report_lines.append(f"- **Shocked Indicator**: `{scenario_res.get('shock_variable')}` (+{scenario_res.get('shock_magnitude')})\n")
+        report_lines.append(f"- **Shocked Indicator**: `{scenario_res.get('shock_variable')}` ({scenario_res.get('shock_magnitude'):+})")
+        report_lines.append(f"- **Baselines**: {_baseline_note(live_ids)}\n")
         report_lines.append("| Target Indicator | Baseline | Shocked Peak | Impact (Delta) | Transmission Lag | Confidence Band |")
         report_lines.append("| :--- | :--- | :--- | :--- | :--- | :--- |")
         for tid, impact in scenario_res.get("forecasted_impacts", {}).items():
             if tid != scenario_res.get("shock_variable"):
                 report_lines.append(
-                    f"| **{impact.get('indicator_name', tid)}** | {impact.get('baseline')} | **{impact.get('shocked_peak')}** | {impact.get('delta'):+0.2f} | {impact.get('transmission_lag_months')}M | {impact.get('confidence_band')} |"
+                    f"| **{impact.get('indicator_name', tid)}** | {impact.get('baseline')} | **{impact.get('shocked_peak')}** | {impact.get('delta') or 0.0:+0.2f} | {impact.get('transmission_lag_months')}M | {impact.get('confidence_band')} |"
                 )
 
 
@@ -240,7 +332,8 @@ def synthesis_node(state: OrchestratorState) -> Dict[str, Any]:
 
     report_lines.append("\n## 6. Methodological & Causal Classification Notes\n")
     report_lines.append("- Multi-agent data dispatched strictly via standard A2A Protocol and FastMCP tool servers.")
-    report_lines.append("- Transmission edges classified according to 5-tier taxonomy (THEORY -> STATISTICAL -> LAGGED -> GRANGER -> STRUCTURAL_CAUSAL_MODEL).")
+    report_lines.append(f"\n{_TAXONOMY_NOTE}")
+    report_lines.append(f"\n{_DOCS_UNAVAILABLE}")
 
     final_report = "\n".join(report_lines)
 

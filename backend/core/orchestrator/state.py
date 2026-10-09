@@ -18,6 +18,7 @@ class OrchestratorState(TypedDict, total=False):
     causal_paths: List[Dict[str, Any]]
     scenario_result: Optional[Dict[str, Any]]
     mermaid_diagram: str
+    live_baseline_ids: List[str]
     final_report: str
     citations: List[Dict[str, Any]]
     a2a_sources: List[Dict[str, Any]]

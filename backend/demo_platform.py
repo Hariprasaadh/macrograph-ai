@@ -35,7 +35,7 @@ def run_platform_demo() -> None:
     path = graph_engine.get_shortest_transmission_path(source, target)
     print(f"\n[3] Causal Transmission Path: [{source}] -> [{target}] ({len(path)} Hops):")
     for i, rel in enumerate(path, 1):
-        print(f"  {i}. {rel.source_indicator_id} -> {rel.target_indicator_id} "
+        print(f"  {i}. [{rel.relation_id}] {rel.source_indicator_id} -> {rel.target_indicator_id} "
               f"[{rel.relation_type.value}] (Lag: {rel.transmission_lag_months}M, Elasticity: {rel.elasticity_sign})")
 
     # 4. Execute Multi-Agent Research Synthesis via LangGraph

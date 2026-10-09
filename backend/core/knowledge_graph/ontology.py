@@ -1,13 +1,22 @@
 """Indian Macroeconomic Knowledge Graph Ontology and Transmission Network."""
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+import uuid
+from typing import Dict, List
 from ..data.schema import (
     CanonicalIndicator,
     CausalRelationship,
     CausalRelationType,
     SectorEnum,
 )
+
+_RELATION_ID_NAMESPACE = uuid.UUID("6f1c2d52-8a0b-4c57-9d4e-3b7a1e5f9c10")
+
+
+def stable_relation_id(rel: CausalRelationship) -> str:
+    """Deterministic rel-<8 hex> ID so provenance and Neo4j MERGE keys survive restarts."""
+    key = f"{rel.source_indicator_id}|{rel.target_indicator_id}|{rel.relation_type.value}"
+    return f"rel-{uuid.uuid5(_RELATION_ID_NAMESPACE, key).hex[:8]}"
 
 
 class MacroeconomicOntology:
@@ -221,7 +230,7 @@ class MacroeconomicOntology:
             self.indicators[ind.indicator_id] = ind
 
         # 2. Register Causal Transmission Edges with 5-Tier Classification
-        self.relationships = [
+        seed_relationships = [
             # Stage 1: Energy -> WPI -> CPI -> Repo Rate -> Credit -> GDP
             CausalRelationship(
                 source_indicator_id="in.macro.prices.brent_crude",
@@ -360,6 +369,23 @@ class MacroeconomicOntology:
                 documented_assumptions=["Supply chain hoarding and distribution bottlenecks are minimal"]
             ),
         ]
+        self.relationships = [
+            rel.model_copy(update={"relation_id": stable_relation_id(rel)}) for rel in seed_relationships
+        ]
+        self.validate()
+
+    def validate(self) -> None:
+        """Rejects self-loops, unknown endpoints and duplicate relation IDs before the graph is built."""
+        seen_ids: set[str] = set()
+        for rel in self.relationships:
+            if rel.source_indicator_id == rel.target_indicator_id:
+                raise ValueError(f"Self-loop relationship rejected: {rel.source_indicator_id}")
+            for endpoint in (rel.source_indicator_id, rel.target_indicator_id):
+                if endpoint not in self.indicators:
+                    raise ValueError(f"Relationship {rel.relation_id} references unknown indicator {endpoint}")
+            if rel.relation_id in seen_ids:
+                raise ValueError(f"Duplicate relation_id {rel.relation_id}")
+            seen_ids.add(rel.relation_id)
 
 
 # Global ontology singleton

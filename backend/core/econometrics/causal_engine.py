@@ -1,18 +1,30 @@
 """Causal Inference, Granger Predictive Testing, VAR Estimation, and Scenario Simulation Engine."""
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
-import numpy as np
+from typing import Any, Dict, List, Optional
 import pandas as pd
 from statsmodels.tsa.stattools import grangercausalitytests
-from statsmodels.tsa.api import VAR
 
-from ..data.schema import (
-    CausalRelationship,
-    CausalRelationType,
-    ScenarioResult,
-)
+from ..data.schema import ScenarioResult
 from ..knowledge_graph.networkx_engine import graph_engine
+
+
+# Fixed deterministic simulation baselines, used when the caller supplies none.
+DEFAULT_BASELINES: Dict[str, float] = {
+    "in.macro.prices.brent_crude": 78.50,
+    "in.macro.prices.wpi_all": 2.45,
+    "in.macro.prices.cpi_headline": 4.26,
+    "in.macro.monetary.repo_rate": 6.25,
+    "in.macro.monetary.bank_credit_growth": 13.80,
+    "in.macro.real.iip_growth": 4.20,
+    "in.macro.real.gdp_growth": 5.40,
+    "in.macro.external.trade_balance": -22.50,
+    "in.macro.external.usd_inr": 86.40,
+    "in.macro.capmarkets.bank_nifty": 51500.0,
+    "in.macro.agri.monsoon_departure": 0.0,
+    "in.macro.agri.foodgrain_production": 328.85,
+    "in.macro.prices.cpi_food": 4.80,
+}
 
 
 class CausalEconometricEngine:
@@ -34,7 +46,7 @@ class CausalEconometricEngine:
 
         subset = data[[effect_col, cause_col]].dropna()
         if len(subset) < 10:
-            return {"is_significant": False, "p_value": None, "optimal_lag": None, "error": "Insufficient sample size (N < 10)"}
+            return self._granger_failure(cause_col, effect_col, "Insufficient sample size (N < 10)")
 
         try:
             results = grangercausalitytests(subset, maxlag=max_lag, verbose=False)
@@ -55,7 +67,18 @@ class CausalEconometricEngine:
                 "is_significant": bool(min_p_val < 0.05)
             }
         except Exception as err:
-            return {"is_significant": False, "p_value": None, "optimal_lag": None, "error": str(err)}
+            return self._granger_failure(cause_col, effect_col, str(err))
+
+    @staticmethod
+    def _granger_failure(cause_col: str, effect_col: str, error: str) -> Dict[str, Any]:
+        return {
+            "cause": cause_col,
+            "effect": effect_col,
+            "optimal_lag": None,
+            "p_value": None,
+            "is_significant": False,
+            "error": error,
+        }
 
     def simulate_scenario(
         self,
@@ -66,21 +89,7 @@ class CausalEconometricEngine:
         baseline_values: Optional[Dict[str, float]] = None
     ) -> ScenarioResult:
         """Simulates a macroeconomic shock propagating through the knowledge graph with impulse response dynamics."""
-        baselines = baseline_values or {
-            "in.macro.prices.brent_crude": 78.50,
-            "in.macro.prices.wpi_all": 2.45,
-            "in.macro.prices.cpi_headline": 4.26,
-            "in.macro.monetary.repo_rate": 6.25,
-            "in.macro.monetary.bank_credit_growth": 13.80,
-            "in.macro.real.iip_growth": 4.20,
-            "in.macro.real.gdp_growth": 5.40,
-            "in.macro.external.trade_balance": -22.50,
-            "in.macro.external.usd_inr": 86.40,
-            "in.macro.capmarkets.bank_nifty": 51500.0,
-            "in.macro.agri.monsoon_departure": 0.0,
-            "in.macro.agri.foodgrain_production": 328.85,
-            "in.macro.prices.cpi_food": 4.80,
-        }
+        baselines = baseline_values if baseline_values is not None else DEFAULT_BASELINES
 
         # 1. Discover transmission paths
         downstream_impacts = self.graph.get_downstream_impacts(shock_variable)
@@ -140,7 +149,7 @@ class CausalEconometricEngine:
             shock_magnitude=shock_magnitude,
             horizon_periods=horizon_periods,
             forecasted_impacts=forecasts,
-            provenance_chain=list(set(traversed_relations))
+            provenance_chain=list(dict.fromkeys(traversed_relations))
         )
 
 

@@ -5,6 +5,7 @@ import asyncio
 import concurrent.futures
 import inspect
 import logging
+import os
 from typing import Any, Optional
 
 from ..config import settings
@@ -159,7 +160,7 @@ class ModelAgnosticLLMClient:
         return (
             "**LLM Synthesis Unavailable**: No API key is configured or the LLM "
             "endpoint is unreachable. Raw indicator data from sector agents is "
-            "included above; narrative synthesis could not be generated."
+            "included in the sections below; narrative synthesis could not be generated."
         )
 
 

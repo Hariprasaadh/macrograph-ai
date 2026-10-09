@@ -41,6 +41,10 @@ agriculture = [
     "agmarknet-mcp @ git+https://github.com/Krishna-Baldwa/agmarket-mcp.git@ad4e9b5c38f0fb45565c6ccf4c3ad706371fd891",
 ]
 
+neo4j = [
+    "neo4j>=5.20.0",
+]
+
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"

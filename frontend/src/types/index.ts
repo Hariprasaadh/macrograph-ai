@@ -330,6 +330,43 @@ export interface ScenarioSimulationOutput {
   provenance_chain: string[];
 }
 
+export interface CausalRelationship {
+  relation_id: string;
+  source_indicator_id: string;
+  target_indicator_id: string;
+  relation_type: string;
+  transmission_lag_months: number;
+  elasticity_sign: '+' | '-';
+  empirical_p_value: number | null;
+  confidence_score: number;
+  mechanism_description: string;
+  documented_assumptions: string[];
+}
+
+export interface KgPathResponse {
+  source: string;
+  target: string;
+  hops: number;
+  total_lag_months: number;
+  relationships: CausalRelationship[];
+}
+
+export interface KgDownstreamImpact {
+  target_indicator_id: string;
+  target_name: string;
+  sector: string;
+  path_length_hops: number;
+  total_lag_months: number;
+  cumulative_confidence: number;
+  transmission_chain: string[];
+}
+
+export interface KgImpactsResponse {
+  shock_indicator_id: string;
+  reachable_targets_count: number;
+  downstream_impacts: KgDownstreamImpact[];
+}
+
 export interface DashboardOverview {
   status: string;
   finance_sector: {

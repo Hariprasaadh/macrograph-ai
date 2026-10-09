@@ -10,7 +10,6 @@ CANONICAL_ID_MAP = {
     "manufacturing_iip": "in.macro.real.iip_growth",
     "industry": "in.macro.real.iip_growth",
     "national_income": "in.macro.real.gdp_growth",
-    "manufacturing_gva": "in.macro.real.gdp_growth",
     "eight_core_industries": "in.macro.real.core_industries",
     "core_industries": "in.macro.real.core_industries",
 
@@ -75,7 +74,8 @@ def resolve_canonical_id(raw_name: str, sector: str | None = None) -> str:
     """Normalize raw indicator names/codes to the canonical schema (in.macro.<sector>.<name>)."""
     raw_str = str(raw_name).strip()
     if raw_str.startswith("in.macro."):
-        return raw_str
+        # Sector-native IDs (e.g. ...cpi_headline_combined_yoy) alias onto the ontology via their last segment.
+        return CANONICAL_ID_MAP.get(raw_str.rsplit(".", 1)[-1], raw_str)
 
     normalized = (
         raw_str.lower()
