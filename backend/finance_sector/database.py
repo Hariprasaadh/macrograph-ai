@@ -145,17 +145,14 @@ _DDL_STATEMENTS: list[str] = [
 # ---------------------------------------------------------------------------
 
 @contextmanager
-def get_connection() -> Generator[duckdb.DuckDBPyConnection, None, None]:
+def get_connection(read_only: bool = False) -> Generator[duckdb.DuckDBPyConnection, None, None]:
     """Open a DuckDB connection to the finance sector database.
 
     Acquires _DB_LOCK to prevent file-locking collisions on Windows.
-    Usage:
-        with get_connection() as con:
-            con.execute("SELECT ...")
     """
     _ensure_data_dir()
     with _DB_LOCK:
-        con = duckdb.connect(str(_DB_PATH))
+        con = duckdb.connect(str(_DB_PATH), read_only=read_only)
         try:
             yield con
         finally:

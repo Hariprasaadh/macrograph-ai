@@ -90,6 +90,14 @@ try:
 except Exception as _e:
     logging.getLogger(__name__).warning("Services sector DB init skipped: %s", _e)
 
+# Ensure Finance Sector DuckDB is initialised + seeded at import time
+try:
+    from finance_sector import database as _fin_db
+    _fin_db.initialise_schema(seed_baseline=True)
+    logging.getLogger(__name__).info("Finance sector DuckDB initialised.")
+except Exception as _e:
+    logging.getLogger(__name__).warning("Finance sector DB init skipped: %s", _e)
+
 # Ensure Fiscal Sector DuckDB is initialised + seeded at import time
 try:
     from fiscal_sector import database as _fiscal_db
