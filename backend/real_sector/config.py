@@ -24,7 +24,20 @@ class RealSectorSettings(BaseSettings):
         validation_alias="REASONING_MODEL",
         description="LLM reasoning model for Real Sector.",
     )
-    REAL_LLM_TEMPERATURE: float = Field(default=0.1)
+    REAL_LLM_TEMPERATURE: float = Field(default=0.2)
+    REAL_LLM_MAX_TOKENS: int = Field(default=2500)
+
+    TVLY_KEY_2: str | None = Field(
+        default=None,
+        description="Tavily API key for real-time growth news & intelligence.",
+    )
+
+    # Enrichment legs consolidation (Yahoo + Tavily + free web search)
+    REAL_MARKET_ENABLED: bool = Field(default=True)
+    REAL_NEWS_ENABLED: bool = Field(default=True)
+    REAL_WEB_SEARCH_ENABLED: bool = Field(default=True)
+    REAL_SEARCH_TIMEOUT: float = Field(default=12.0)
+    REAL_SEARCH_MAX_RESULTS: int = Field(default=5)
 
     # Official External MCP Server Endpoints
     MOSPI_MCP_URL: str = Field(

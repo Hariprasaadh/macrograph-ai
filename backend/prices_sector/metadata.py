@@ -35,6 +35,9 @@ def choose_base(payload: dict[str, Any], dataset: str, requested: str | None) ->
         note = str(payload.get('_note', '')) + ' ' + str(payload.get('base_year_coverage', ''))
         match = re.search(r'(?:Latest|Current)\s+base_year\s*(?:is\s*|=\s*)[\'"]([^\'"]+)', note, re.I)
         current = match[1] if match else None
+        if not current:
+            default_match = re.search(r"Default\s+base_year\s+is\s+['\"]([^'\"]+)", note, re.I)
+            current = default_match[1] if default_match else None
     if current and str(current) in supported:
         return str(current)
     raise ValueError(f'current {dataset} series could not be identified from MoSPI metadata.')

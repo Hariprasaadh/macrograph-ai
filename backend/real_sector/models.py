@@ -232,6 +232,97 @@ class MarketContextResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Step 4b — National Accounts: Real & Nominal GDP (MoSPI NAS, IMF WEO fallback)
+# ---------------------------------------------------------------------------
+
+class GDPRecord(BaseModel):
+    """Annual Gross Domestic Product at constant (real) and current (nominal) prices."""
+
+    period: str = Field(..., description="Financial year label (e.g. '2024-25').")
+    real_gdp_cr: float | None = Field(None, description="Real GDP at constant prices (Rs Crore).")
+    nominal_gdp_cr: float | None = Field(None, description="Nominal GDP at current prices (Rs Crore).")
+    real_gdp_yoy_pct: float | None = Field(None, description="Real GDP YoY growth (%).")
+    nominal_gdp_yoy_pct: float | None = Field(None, description="Nominal GDP YoY growth (%).")
+    gdp_deflator_yoy_pct: float | None = Field(None, description="Implied GDP deflator YoY (%).")
+    base_year: str | None = Field(None, description="NAS base year (e.g. '2011-12').")
+    revision: str | None = Field(None, description="Estimate vintage (e.g. 'Provisional Estimates').")
+    citation: Citation
+
+
+class GDPResponse(BaseModel):
+    status: DataFreshness
+    records: list[GDPRecord]
+    total_records: int = Field(default=0)
+    error_message: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Step 4c — National Accounts: Gross Fixed Capital Formation (MoSPI NAS)
+# ---------------------------------------------------------------------------
+
+class GFCFRecord(BaseModel):
+    """Annual Gross Fixed Capital Formation at constant and current prices."""
+
+    period: str = Field(..., description="Financial year label (e.g. '2024-25').")
+    real_gfcf_cr: float | None = Field(None, description="Real GFCF at constant prices (Rs Crore).")
+    nominal_gfcf_cr: float | None = Field(None, description="Nominal GFCF at current prices (Rs Crore).")
+    real_gfcf_yoy_pct: float | None = Field(None, description="Real GFCF YoY growth (%).")
+    nominal_gfcf_yoy_pct: float | None = Field(None, description="Nominal GFCF YoY growth (%).")
+    gfcf_to_gdp_pct: float | None = Field(None, description="Nominal GFCF as % of nominal GDP (investment rate).")
+    base_year: str | None = Field(None, description="NAS base year (e.g. '2011-12').")
+    revision: str | None = Field(None, description="Estimate vintage (e.g. 'Provisional Estimates').")
+    citation: Citation
+
+
+class GFCFResponse(BaseModel):
+    status: DataFreshness
+    records: list[GFCFRecord]
+    total_records: int = Field(default=0)
+    error_message: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Step 7b — Growth Market Proxies & Real-Time News (Yahoo / Tavily / free web)
+# ---------------------------------------------------------------------------
+
+class GrowthMarketProxy(BaseModel):
+    """Inflation/growth-sensitive market quote used as context, never as a national-accounts value."""
+
+    symbol: str
+    name: str
+    unit: str | None = None
+    current_price: float | None = None
+    change_pct: float | None = None
+    observation_date: str | None = None
+    source_authority: str = "Yahoo Finance"
+    retrieval_url: str | None = None
+    freshness: str = "live"
+
+
+class GrowthMarketResponse(BaseModel):
+    status: DataFreshness
+    proxies: list[GrowthMarketProxy] = Field(default_factory=list)
+    total_records: int = Field(default=0)
+    error_message: str | None = None
+
+
+class GrowthNewsItem(BaseModel):
+    title: str
+    url: str
+    snippet: str = ""
+    published_date: str | None = None
+    source: str = "Tavily AI Search"
+
+
+class GrowthNewsResponse(BaseModel):
+    status: DataFreshness
+    query: str = ""
+    news_items: list[GrowthNewsItem] = Field(default_factory=list)
+    total_results: int = Field(default=0)
+    error_message: str | None = None
+
+
+# ---------------------------------------------------------------------------
 # Sentinel Unavailable Response
 # ---------------------------------------------------------------------------
 

@@ -21,6 +21,7 @@ from core.protocols.a2a.models import (
     TaskArtifactUpdateEvent,
 )
 from real_sector import client
+from real_sector import national_accounts as na
 from real_sector.parsers import evaluate_industrial_trends
 
 
@@ -73,6 +74,13 @@ class RealSectorAgentExecutor(AgentExecutor):
                     examples=["Assess quarterly manufacturing GVA growth."],
                 ),
                 AgentSkill(
+                    id="gdp_gfcf_national_accounts",
+                    name="Real & Nominal GDP and GFCF (National Accounts)",
+                    description="Evaluates annual real and nominal GDP growth, the GDP deflator, and Gross Fixed Capital Formation with the investment rate from MoSPI NAS (IMF WEO fallback).",
+                    tags=["gdp", "gfcf", "national_accounts", "investment", "nas"],
+                    examples=["What are India's latest real and nominal GDP growth rates?", "How is GFCF and the investment rate trending?"],
+                ),
+                AgentSkill(
                     id="joined_real_sector_diagnostic",
                     name="Real Sector Comprehensive Diagnostic",
                     description="Executes a cross-indicator DuckDB join and directional trend evaluation (↑/↓/→) across all real sector pillars.",
@@ -100,6 +108,8 @@ class RealSectorAgentExecutor(AgentExecutor):
                 client.fetch_core_industries(lookback_months=6),
                 client.fetch_manufacturing_gva(lookback_quarters=4),
                 client.fetch_infrastructure_market_context(),
+                na.fetch_gdp(lookback_years=5),
+                na.fetch_gfcf(lookback_years=5),
                 return_exceptions=True,
             )
 
@@ -108,6 +118,8 @@ class RealSectorAgentExecutor(AgentExecutor):
             ici = results[2] if not isinstance(results[2], Exception) and results[2] else []
             gva = results[3] if not isinstance(results[3], Exception) and results[3] else []
             market = results[4] if not isinstance(results[4], Exception) and results[4] else []
+            gdp = results[5] if not isinstance(results[5], Exception) and results[5] else []
+            gfcf = results[6] if not isinstance(results[6], Exception) and results[6] else []
 
             latest_mfg_yoy = iip_sec[-1].manufacturing_yoy_pct if iip_sec else None
             latest_cap_yoy = iip_use[-1].capital_goods_yoy_pct if iip_use else None
@@ -137,6 +149,9 @@ class RealSectorAgentExecutor(AgentExecutor):
                 f"- **Core-sector Steel**: {trends.get('Core Steel', 'N/A')} (Period: {ici[-1].period if ici else 'N/A'})",
                 f"- **Core-sector Cement**: {trends.get('Core Cement', 'N/A')} (Period: {ici[-1].period if ici else 'N/A'})",
                 f"- **Manufacturing GVA**: {gva[-1].manufacturing_gva_real_yoy_pct if gva else 'N/A'}% YoY (Period: {gva[-1].period if gva else 'N/A'})",
+                f"- **Real GDP**: {gdp[-1].real_gdp_yoy_pct if gdp else 'N/A'}% YoY (Period: {gdp[-1].period if gdp else 'N/A'}, {gdp[-1].revision if gdp else 'N/A'})",
+                f"- **Nominal GDP**: {gdp[-1].nominal_gdp_yoy_pct if gdp else 'N/A'}% YoY (Period: {gdp[-1].period if gdp else 'N/A'})",
+                f"- **Real GFCF**: {gfcf[-1].real_gfcf_yoy_pct if gfcf else 'N/A'}% YoY; investment rate {gfcf[-1].gfcf_to_gdp_pct if gfcf else 'N/A'}% of GDP (Period: {gfcf[-1].period if gfcf else 'N/A'})",
                 "",
                 "## Market Context (Infrastructure & Capital Goods)",
             ]
@@ -157,6 +172,10 @@ class RealSectorAgentExecutor(AgentExecutor):
                 lines.append(f"| Eight Core Industries | {ici[-1].citation.source_authority} | {ici[-1].citation.table_reference} | {ici[-1].period} | {ici[-1].citation.freshness.value} |")
             if gva:
                 lines.append(f"| Manufacturing GVA | {gva[-1].citation.source_authority} | {gva[-1].citation.table_reference} | {gva[-1].period} | {gva[-1].citation.freshness.value} |")
+            if gdp:
+                lines.append(f"| Real & Nominal GDP | {gdp[-1].citation.source_authority} | {gdp[-1].citation.table_reference} | {gdp[-1].period} | {gdp[-1].citation.freshness.value} |")
+            if gfcf:
+                lines.append(f"| GFCF | {gfcf[-1].citation.source_authority} | {gfcf[-1].citation.table_reference} | {gfcf[-1].period} | {gfcf[-1].citation.freshness.value} |")
 
             report_md = "\n".join(lines)
 

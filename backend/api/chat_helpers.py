@@ -129,6 +129,8 @@ def _sector_chat_response(target: str, node_result: dict[str, Any]) -> dict[str,
             "observation_period": citation.get("observation_period"),
             "freshness": citation.get("freshness"),
             "dataset": citation.get("dataset"),
+            "observation_id": citation.get("observation_id"),
+            "value": citation.get("value"),
         }
         for citation in raw_citations
         if isinstance(citation, dict) and citation.get("source_agent")

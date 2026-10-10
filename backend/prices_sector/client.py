@@ -18,6 +18,9 @@ MOSPI_URL = mospi.MOSPI_URL
 IMF_URL = 'https://imf.caseyjhand.com/mcp'
 # Verified IMF CPI DSD: COUNTRY.INDEX_TYPE.COICOP_1999.TYPE_OF_TRANSFORMATION.FREQUENCY.
 IMF_CPI_KEY = 'IND.CPI._T.YOY_PCH_PA_PT.M'
+# MoSPI fragments CPI history across base years: base 2024 covers only
+# 2025+ while base 2012 covers 2011-2025. Stitch older bases for long lookbacks.
+CPI_FALLBACK_BASES = ('2012', '2010')
 
 
 async def _imf_request(call, intent: PricesIntent, request: PriceRequest, start: str, end: str):
@@ -122,7 +125,37 @@ async def retrieve_prices(intent: PricesIntent) -> PricesResult:
                             discovered = metadata[request.indicator.upper()]
                             if isinstance(discovered, Exception):
                                 raise discovered
-                            return await mospi.fetch_request(call, intent, request, *discovered, start, end)
+                            records, issues, detail = await mospi.fetch_request(call, intent, request, *discovered, start, end)
+                            # Stitch older CPI bases when the current base cannot cover the lookback.
+                            # The MoSPI server keeps full history under base 2012, not the latest base 2024.
+                            if (request.indicator == 'cpi' and intent.base_year is None
+                                    and len(records) < intent.lookback_months):
+                                for fallback_base in CPI_FALLBACK_BASES:
+                                    if fallback_base == discovered[0]:
+                                        continue
+                                    try:
+                                        fb_base, fb_meta = await mospi.discover(call, 'CPI', fallback_base)
+                                        fb_records, fb_issues, fb_detail = await mospi.fetch_request(
+                                            call, intent, request, fb_base, fb_meta, start, end)
+                                        have = {r.observation_period for r in records}
+                                        for r in fb_records:
+                                            if r.observation_period not in have:
+                                                records.append(r)
+                                                have.add(r.observation_period)
+                                        records.sort(key=lambda r: r.observation_period)
+                                        stitched = detail.get('stitched_bases', [discovered[0]])
+                                        if fb_records:
+                                            stitched = stitched + [fb_base]
+                                        detail = {**detail, 'stitched_bases': stitched,
+                                                  'fallback_base': fb_base,
+                                                  'fallback_observations': len(fb_records)}
+                                        issues = list(dict.fromkeys(issues + [
+                                            i for i in fb_issues if 'no usable observations' not in i.lower()]))
+                                        if len(records) >= intent.lookback_months:
+                                            break
+                                    except Exception:
+                                        continue
+                            return records, issues, detail
                         except Exception as exc:
                             return [], [f'{type(exc).__name__}: {exc}'], {'dataset': request.indicator.upper()}
 

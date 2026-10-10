@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any, Dict, List
 from fastapi import APIRouter
 
@@ -27,13 +28,27 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Dashboard"])
 
 
+def _is_valid_number(value: Any) -> bool:
+    """Strict numeric check: int/float only, rejecting bool, NaN, inf, and strings."""
+    if isinstance(value, bool):
+        return False
+    if not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except (TypeError, ValueError):
+        return False
+
+
 def _compute_macro_anomalies(fin: Dict[str, Any], fisc: Dict[str, Any], ext: Dict[str, Any]) -> List[Dict[str, Any]]:
     anomalies: List[Dict[str, Any]] = []
 
     # 1. Gross NPA Multi-Decadal Low
-    aq = fin.get("asset_quality")
-    if aq and aq.get("gross_npa_pct") is not None:
+    aq = fin.get("asset_quality") if isinstance(fin, dict) else None
+    if aq and _is_valid_number(aq.get("gross_npa_pct")):
         gnpa = aq["gross_npa_pct"]
+        pcr = aq.get("provision_coverage_ratio_pct")
+        pcr_text = f"(PCR {pcr:.1f}%)." if _is_valid_number(pcr) else "Provision coverage ratio is unavailable."
         if gnpa <= 3.0:
             anomalies.append({
                 "id": "anom-gnpa-low",
@@ -43,7 +58,7 @@ def _compute_macro_anomalies(fin: Dict[str, Any], fisc: Dict[str, Any], ext: Dic
                 "value": f"{gnpa:.2f}%",
                 "period": aq.get("period", "Latest"),
                 "rule": "gnpa_pct < 3.0% (12-year low watermark)",
-                "description": f"Scheduled commercial bank Gross NPA ratio dropped to {gnpa:.2f}%, indicating robust balance sheet clean-up and improved provisioning (PCR {aq.get('provision_coverage_ratio_pct', 76.4):.1f}%).",
+                "description": f"Scheduled commercial bank Gross NPA ratio dropped to {gnpa:.2f}%, indicating robust balance sheet clean-up and improved provisioning {pcr_text}",
                 "citation": aq.get("citation"),
             })
 
@@ -104,50 +119,84 @@ def _compute_macro_anomalies(fin: Dict[str, Any], fisc: Dict[str, Any], ext: Dic
 def _generate_macro_intelligence_brief(
     fin: Dict[str, Any], fisc: Dict[str, Any], ext: Dict[str, Any], cap: Dict[str, Any]
 ) -> Dict[str, Any]:
+    fin = fin if isinstance(fin, dict) else {}
+    fisc = fisc if isinstance(fisc, dict) else {}
+    ext = ext if isinstance(ext, dict) else {}
+    cap = cap if isinstance(cap, dict) else {}
     cr = fin.get("credit_growth")
     aq = fin.get("asset_quality")
-    gst = fisc.get("latest_gst")
     fx = ext.get("latest_fx")
     res = ext.get("latest_reserves")
     gsec = cap.get("latest_gsec")
 
+    candidates = [
+        ("credit_growth", "non_food_credit_yoy_pct", cr.get("non_food_credit_yoy_pct") if isinstance(cr, dict) else None),
+        ("asset_quality", "gross_npa_pct", aq.get("gross_npa_pct") if isinstance(aq, dict) else None),
+        ("asset_quality", "provision_coverage_ratio_pct", aq.get("provision_coverage_ratio_pct") if isinstance(aq, dict) else None),
+        ("latest_fx", "usd_inr_rate", fx.get("usd_inr_rate") if isinstance(fx, dict) else None),
+        ("latest_reserves", "total_reserves_usd_mn", res.get("total_reserves_usd_mn") if isinstance(res, dict) else None),
+        ("latest_gsec", "ten_year_gsec_yield_pct", gsec.get("ten_year_gsec_yield_pct") if isinstance(gsec, dict) else None),
+    ]
+    missing = [f"{record}.{field}" for record, field, value in candidates if not _is_valid_number(value)]
+    upcoming = [
+        {"event": "RBI Monetary Policy Committee (MPC) Rate Decision", "frequency": "Bi-monthly", "expected_date": "Next MPC Resolution"},
+        {"event": "MoSPI Headline CPI Inflation & IIP Release", "frequency": "Monthly (12th)", "expected_date": "Next Release Cycle"},
+        {"event": "Ministry of Finance Monthly Gross GST Revenue", "frequency": "Monthly (1st)", "expected_date": "Next 1st of Month"},
+    ]
+    headline = "Indian Macro Telemetry: Domestic Growth Resilient; Balance Sheet Strength Anchors Financial Stability"
+    if missing:
+        return {
+            "status": "unavailable",
+            "headline": headline,
+            "date": "Official Telemetry Ingestion Mirror",
+            "executive_summary": "Macro intelligence brief unavailable: required telemetry is missing.",
+            "key_drivers": [],
+            "missing_metrics": missing,
+            "upcoming_catalysts": upcoming,
+        }
+
+    growth = cr["non_food_credit_yoy_pct"]
+    gnpa = aq["gross_npa_pct"]
+    pcr = aq["provision_coverage_ratio_pct"]
+    fx_rate = fx["usd_inr_rate"]
+    reserves_bn = res["total_reserves_usd_mn"] / 1000.0
+    gsec_yield = gsec["ten_year_gsec_yield_pct"]
+
     return {
-        "headline": "Indian Macro Telemetry: Domestic Growth Resilient; Balance Sheet Strength Anchors Financial Stability",
+        "status": "available",
+        "headline": headline,
         "date": "Official Telemetry Ingestion Mirror",
         "executive_summary": (
             "Empirical data ingested across official RBI DBIE, MoSPI, and Ministry of Finance mirrors reflects sustained economic momentum. "
-            f"Commercial bank credit continues double-digit expansion ({'+' + str(cr.get('non_food_credit_yoy_pct')) + '% YoY' if cr else '+13.0% YoY'}), "
-            f"while banking asset quality stands at historic lows ({aq.get('gross_npa_pct', 2.8):.2f}% GNPA). "
-            f"External buffers remain robust with reserves exceeding ${((res.get('total_reserves_usd_mn', 700000) / 1000)):.1f} Billion, "
-            f"and indirect tax collections anchoring fiscal targets."
+            f"Commercial bank credit continues double-digit expansion (+{growth}% YoY), "
+            f"while banking asset quality stands at historic lows ({gnpa:.2f}% GNPA). "
+            f"External buffers remain robust with reserves exceeding ${reserves_bn:.1f} Billion, "
+            "and indirect tax collections anchoring fiscal targets."
         ),
         "key_drivers": [
             {
                 "pillar": "Banking & Solvency",
                 "stance": "Strong",
-                "takeaway": f"SCB Gross NPA at {aq.get('gross_npa_pct', 2.8):.2f}% with high provision coverage ({aq.get('provision_coverage_ratio_pct', 76.4):.1f}%). Capital adequacy CRAR provides +530 bps regulatory buffer.",
+                "takeaway": f"SCB Gross NPA at {gnpa:.2f}% with high provision coverage ({pcr:.1f}%). Capital adequacy CRAR provides +530 bps regulatory buffer.",
             },
             {
                 "pillar": "Fiscal Consolidation",
                 "stance": "On-Track",
-                "takeaway": f"GST revenue averaging above ₹1.70L Cr monthly. Union Fiscal Deficit bounded towards 4.9% of GDP target for FY25.",
+                "takeaway": "GST revenue averaging above ₹1.70L Cr monthly. Union Fiscal Deficit bounded towards 4.9% of GDP target for FY25.",
             },
             {
                 "pillar": "External Sector",
                 "stance": "Resilient",
-                "takeaway": f"USD/INR trading in orderly band (₹{fx.get('usd_inr_rate', 85.57):.2f}) with record foreign exchange reserves protecting import coverage.",
+                "takeaway": f"USD/INR trading in orderly band (₹{fx_rate:.2f}) with record foreign exchange reserves protecting import coverage.",
             },
             {
                 "pillar": "Sovereign Yields",
                 "stance": "Stable",
-                "takeaway": f"10-Year G-Sec yields anchoring at {gsec.get('ten_year_gsec_yield_pct', 6.77):.2f}%, reflecting market confidence in inflation management.",
+                "takeaway": f"10-Year G-Sec yields anchoring at {gsec_yield:.2f}%, reflecting market confidence in inflation management.",
             },
         ],
-        "upcoming_catalysts": [
-            {"event": "RBI Monetary Policy Committee (MPC) Rate Decision", "frequency": "Bi-monthly", "expected_date": "Next MPC Resolution"},
-            {"event": "MoSPI Headline CPI Inflation & IIP Release", "frequency": "Monthly (12th)", "expected_date": "Next Release Cycle"},
-            {"event": "Ministry of Finance Monthly Gross GST Revenue", "frequency": "Monthly (1st)", "expected_date": "Next 1st of Month"},
-        ]
+        "missing_metrics": [],
+        "upcoming_catalysts": upcoming,
     }
 
 
@@ -231,13 +280,13 @@ async def get_dashboard_overview() -> Dict[str, Any]:
         {
             "sector": "Capital Markets",
             "indicator": "10-Year Benchmark G-Sec Yield",
-            "value": f"{gsec['ten_year_gsec_yield_pct']:.2f}%" if gsec and gsec.get("ten_year_gsec_yield_pct") else "6.77%",
+            "value": f"{gsec['ten_year_gsec_yield_pct']:.2f}%" if isinstance(gsec, dict) and _is_valid_number(gsec.get("ten_year_gsec_yield_pct")) else "Unavailable",
             "sub_value": "Secondary Market Sovereign Curve",
-            "period": gsec["period"] if gsec else "Latest",
+            "period": gsec["period"] if isinstance(gsec, dict) and gsec.get("period") else "Latest",
             "frequency": "Monthly / Daily",
             "source": "CCIL / RBI DBIE",
-            "status": "verified",
-            "citation": gsec.get("citation") if gsec else None,
+            "status": "verified" if isinstance(gsec, dict) and _is_valid_number(gsec.get("ten_year_gsec_yield_pct")) else "unavailable",
+            "citation": gsec.get("citation") if isinstance(gsec, dict) else None,
             "is_mock": False,
         },
         {

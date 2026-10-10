@@ -18,9 +18,15 @@ from pydantic import Field
 from real_sector import database as db
 from real_sector import client
 from real_sector.client import RealSectorDataUnavailableError
+from real_sector import national_accounts as na
+from real_sector.market_client import fetch_free_web_search, fetch_growth_market_proxies, fetch_realtime_growth_news
 from real_sector.models import (
     CoreIndustriesResponse,
     DataFreshness,
+    GDPResponse,
+    GFCFResponse,
+    GrowthMarketResponse,
+    GrowthNewsResponse,
     IIPSectoralResponse,
     IIPUseBasedResponse,
     ManufacturingGVAResponse,
@@ -124,6 +130,107 @@ async def get_manufacturing_gva(
 
 
 @mcp_server.tool(
+    name="get_gdp",
+    title="Real & Nominal GDP (MoSPI NAS, IMF WEO fallback)",
+    description=(
+        "Fetches annual Gross Domestic Product at constant prices (real GDP, Rs Crore) "
+        "and current prices (nominal GDP, Rs Crore) with YoY growth and the implied "
+        "GDP deflator. Primary source: MoSPI National Accounts Statistics "
+        "(indicator_code=5, base 2011-12) via the MoSPI MCP server. Fallback: IMF "
+        "World Economic Outlook (IND.NGDP_RPCH.A / IND.NGDP.A) via the IMF MCP server."
+    ),
+    tags={"real_sector", "gdp", "real_gdp", "nominal_gdp", "national_accounts", "mospi", "imf"},
+)
+async def get_gdp(
+    lookback_years: Annotated[int, Field(default=10, ge=1, le=20)] = 10,
+) -> GDPResponse | UnavailableResponse:
+    try:
+        records = await na.fetch_gdp(lookback_years)
+        freshness = records[-1].citation.freshness if records else DataFreshness.UNAVAILABLE
+        return GDPResponse(status=freshness, records=records, total_records=len(records))
+    except RealSectorDataUnavailableError as exc:
+        return UnavailableResponse(tool="get_gdp", reason=str(exc))
+    except Exception as exc:
+        return UnavailableResponse(tool="get_gdp", reason=str(exc), error_detail=repr(exc))
+
+
+@mcp_server.tool(
+    name="get_gfcf",
+    title="Gross Fixed Capital Formation (MoSPI NAS)",
+    description=(
+        "Fetches annual Gross Fixed Capital Formation at constant and current prices "
+        "(Rs Crore) with YoY growth and the GFCF-to-GDP investment rate. Source: "
+        "MoSPI National Accounts Statistics (indicator_code=9, base 2011-12) via the "
+        "MoSPI MCP server."
+    ),
+    tags={"real_sector", "gfcf", "capital_formation", "investment", "national_accounts", "mospi"},
+)
+async def get_gfcf(
+    lookback_years: Annotated[int, Field(default=10, ge=1, le=20)] = 10,
+) -> GFCFResponse | UnavailableResponse:
+    try:
+        records = await na.fetch_gfcf(lookback_years)
+        freshness = records[-1].citation.freshness if records else DataFreshness.UNAVAILABLE
+        return GFCFResponse(status=freshness, records=records, total_records=len(records))
+    except RealSectorDataUnavailableError as exc:
+        return UnavailableResponse(tool="get_gfcf", reason=str(exc))
+    except Exception as exc:
+        return UnavailableResponse(tool="get_gfcf", reason=str(exc), error_detail=repr(exc))
+
+
+@mcp_server.tool(
+    name="get_growth_market_proxies",
+    title="Growth Market Proxies (Nifty, Steel, Cement, Capex)",
+    description=(
+        "Fetches live market context for growth analysis: Nifty 50, steel/cement/capex "
+        "bellwethers, USD/INR, and crude via Yahoo Finance. Context signals only, "
+        "never national-accounts measurements."
+    ),
+    tags={"real_sector", "market_context", "yahoo_finance", "nifty", "capex"},
+)
+async def get_growth_market_proxies() -> GrowthMarketResponse | UnavailableResponse:
+    try:
+        from real_sector.models import GrowthMarketProxy
+
+        data = await fetch_growth_market_proxies()
+        proxies = [GrowthMarketProxy(**p) for p in data.get("proxies", [])]
+        status = DataFreshness.LIVE if data.get("status") == "live" else DataFreshness.UNAVAILABLE
+        return GrowthMarketResponse(status=status, proxies=proxies, total_records=len(proxies))
+    except Exception as exc:
+        return UnavailableResponse(tool="get_growth_market_proxies", reason=str(exc))
+
+
+@mcp_server.tool(
+    name="get_realtime_growth_news",
+    title="Real-Time GDP & Growth Intelligence (Tavily + free web)",
+    description=(
+        "Enriches growth intelligence with real-time GDP/GFCF release coverage and "
+        "RBI commentary using Tavily AI Search, consolidated with free web search."
+    ),
+    tags={"real_sector", "news", "gdp", "rbi", "realtime", "tavily"},
+)
+async def get_realtime_growth_news(
+    query: Annotated[
+        str,
+        Field(default="India GDP growth GFCF MoSPI release latest"),
+    ] = "India GDP growth GFCF MoSPI release latest",
+    max_results: Annotated[int, Field(default=5, ge=1, le=10)] = 5,
+) -> GrowthNewsResponse | UnavailableResponse:
+    try:
+        from real_sector.models import GrowthNewsItem
+
+        news = await fetch_realtime_growth_news(query=query, max_results=max_results)
+        items = [GrowthNewsItem(**n) for n in news.get("news_items", [])]
+        status = DataFreshness.LIVE if news.get("status") == "live" else DataFreshness.UNAVAILABLE
+        return GrowthNewsResponse(
+            status=status, query=query, news_items=items, total_results=len(items),
+            error_message=news.get("error_message"),
+        )
+    except Exception as exc:
+        return UnavailableResponse(tool="get_realtime_growth_news", reason=str(exc))
+
+
+@mcp_server.tool(
     name="get_joined_real_sector_indicators",
     title="Composite Multi-Indicator Real Sector View",
     description=(
@@ -174,7 +281,10 @@ def get_catalog() -> str:
                 "iip_use_based": "IIP Use-Based Classification (Primary, Capital, Intermediate, Infra, Durables)",
                 "eight_core_industries": "DPIIT ICI (Coal, Crude, Gas, Refinery, Fertilizer, Steel, Cement, Electricity)",
                 "gva_manufacturing": "Quarterly Estimates of GVA at Basic Prices (Manufacturing)",
+                "gdp": "MoSPI NAS Gross Domestic Product — real (constant prices) & nominal (current prices), IMF WEO fallback",
+                "gfcf": "MoSPI NAS Gross Fixed Capital Formation — real & nominal, GFCF-to-GDP investment rate",
                 "market_context": "Infrastructure, Steel, Cement & Capital Goods Equity Bellwethers",
+                "growth_proxies": "Yahoo Finance growth proxies (Nifty, steel/cement/capex, USD/INR, crude) + Tavily/free-web news",
             },
         },
         indent=2,

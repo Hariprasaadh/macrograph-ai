@@ -61,22 +61,49 @@ def resolve_category(meta: dict[str, Any], request: PriceRequest) -> tuple[str, 
     raise ValueError(f'{request.category}: requested category is not exposed by this series metadata')
 
 
+def _is_overall_aggregate(row: dict[str, Any], dimension: str, code: str) -> bool:
+    """Detect the aggregate-itself child row (e.g. 2012 CPI group=General carries subgroup=General-Overall)."""
+    if dimension != "group":
+        return False
+    sub_code = str(row.get("subgroup_code", row.get("sub_group_code", "")))
+    sub_name = label_key(row.get("subgroup", row.get("sub_group", "")))
+    if sub_code and (sub_code == f"{code}.99" or sub_code.startswith(f"{code}.")):
+        return "overall" in sub_name or "general" in sub_name
+    return "overall" in sub_name
+
+
 def matches_row(row: dict[str, Any], dimension: str, code: str, name: str) -> bool:
+    if dimension == 'major_group' and any(
+        key in row and row[key] not in (None, '', 'NA', 'N/A')
+        for key in ('group', 'sub_group', 'subgroup', 'sub_sub_group', 'sub_subgroup',
+                    'sub_sub_group_code', 'item')
+    ):
+        return False
     key = ROW_DIMENSIONS.get(dimension, dimension)
     row_code = row.get(f'{dimension}_code')
     if row_code is not None:
         if str(row_code) != code:
             return False
-    elif label_key(row.get(key, row.get(f'{dimension}_name'))) != label_key(name):
+    elif label_key(row.get(key, row.get(dimension, row.get(f'{dimension}_name')))) != label_key(name):
         return False
     # A parent filter also returns its children. Only accept the aggregate itself.
+    # Exception: legacy bases (e.g. CPI 2012) repeat the aggregate as an
+    # "Overall" subgroup row — that row IS the aggregate, so keep it.
     hierarchy = ['major_group', 'division', 'group', 'subgroup', 'sub_group', 'class', 'sub_class', 'sub_subgroup', 'item']
     for child in hierarchy[hierarchy.index(dimension) + 1:]:
         if child in ('subgroup', 'sub_group') and dimension in ('subgroup', 'sub_group'):
             continue
         field = ROW_DIMENSIONS.get(child, child)
-        if row.get(field) not in (None, '', 'NA', 'N/A') or row.get(f'{child}_code') not in (None, ''):
-            return False
+        child_value = row.get(field, row.get(child))
+        if child.endswith('_group'):
+            child_value = row.get(child, child_value)
+        if child in ('subgroup', 'sub_group'):
+            child_value = row.get('subgroup', row.get('sub_group'))
+            if _is_overall_aggregate(row, dimension, code):
+                continue
+        if child_value not in (None, '', 'NA', 'N/A') or row.get(f'{child}_code') not in (None, ''):
+            if not (child in ('subgroup', 'sub_group') and _is_overall_aggregate(row, dimension, code)):
+                return False
     return True
 
 
@@ -122,7 +149,7 @@ async def fetch_request(call: Call, intent: PricesIntent, request: PriceRequest,
         sector_code, sector_name = find_code(meta, 'sector', [request.sector])
         filters.update(series='Current', state_code=state_code, sector_code=sector_code)
     # WPI needs matching prior-year indices for YoY, never different bases.
-    fetch_start = shift_month(start, -12) if dataset == 'WPI' else start
+    fetch_start = shift_month(start, -12) if dataset == 'WPI' else (shift_month(start, -1) if request.measure == 'mom' else start)
     years = list(range(int(fetch_start[:4]), int(end[:4]) + 1))
     available_years = {str(y.get('year')) for y in meta.get('year', []) if isinstance(y, dict)}
     if available_years:
@@ -134,7 +161,8 @@ async def fetch_request(call: Call, intent: PricesIntent, request: PriceRequest,
     selected: dict[str, dict[str, Any]] = {}
     conflicts: set[str] = set()
     for row in rows:
-        if str(row.get('base_year', base)) != base or not matches_row(row, dimension, code, name):
+        row_base = row.get('base_year', row.get('baseyear', base))
+        if str(row_base) != base or not matches_row(row, dimension, code, name):
             continue
         if dataset == 'CPI':
             if row.get('series') not in (None, 'Current'):
@@ -165,6 +193,17 @@ async def fetch_request(call: Call, intent: PricesIntent, request: PriceRequest,
             continue
         metadata: dict[str, Any] = {'sector': request.sector, 'category': request.category, 'series': row.get('series'), 'geography': intent.geography}
         value = number(row.get('inflation'))
+        if request.measure == 'index':
+            value = number(row.get('index_value', row.get('index')))
+        elif request.measure == 'mom' and value is None:
+            previous_period = shift_month(period, -1)
+            previous = selected.get(previous_period, {})
+            current_index = number(row.get('index_value', row.get('index')))
+            previous_index = number(previous.get('index_value', previous.get('index')))
+            if current_index is not None and previous_index and previous_index > 0:
+                value = (current_index / previous_index - 1) * 100
+                metadata.update(calculation='100 * (index / previous_month_index - 1)', index=current_index,
+                                previous_month_index=previous_index, previous_month_period=previous_period)
         if dataset == 'WPI' and value is None:
             previous_period = shift_month(period, -12)
             previous = selected.get(previous_period, {})
@@ -180,9 +219,9 @@ async def fetch_request(call: Call, intent: PricesIntent, request: PriceRequest,
             series_code += f':state={state_code}:sector={sector_code}:Current'
         observations.append(PriceObservation(
             source_authority='National Statistical Office (NSO), MoSPI' if dataset == 'CPI' else 'Office of Economic Adviser / MoSPI',
-            dataset_reference=dataset, indicator_id=f'in.macro.prices.{request.indicator}_{request.category}_{request.sector}_yoy',
+            dataset_reference=dataset, indicator_id=f'in.macro.prices.{request.indicator}_{request.category}_{request.sector}_{request.measure}',
             indicator=f'{name} ({sector_name})' if sector_name else name, series_code=series_code, request_id=request.key,
-            observation_period=period, base_year=base, value=value, unit='% YoY', url=MOSPI_URL,
+            observation_period=period, base_year=base, value=value, unit='index' if request.measure == 'index' else '% MoM' if request.measure == 'mom' else '% YoY', url=MOSPI_URL,
             mcp_server=MOSPI_URL, mcp_tool='get_data', retrieved_at=datetime.now(timezone.utc), metadata=metadata))
     return observations, list(dict.fromkeys(errors)), {'dataset': dataset, 'base_year': base, 'filters': filters,
         'period_range_requested': [start, end], 'index_period_range_requested': [fetch_start, end]}

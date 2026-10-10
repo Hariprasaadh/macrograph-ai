@@ -8,9 +8,8 @@ from .models import PriceRequest, PricesIntent
 def is_direct_prices_query(query: str) -> bool:
     q = query.casefold()
     prices = re.search(r'\b(cpi|cfpi|wpi|inflation|consumer price index|wholesale price index)\b', q)
-    reasoning = re.search(r'\b(why|impacts?|affects?|causes?|drivers?|relationship|correlation|forecast\w*|predict\w*|policy|transmission|explain)\b', q)
     other_sector = re.search(r'\b(gdp|gva|repo|unemployment|nifty|sensex|fiscal|exports?|imports?|monsoon|credit|liquidity)\b', q)
-    return bool(prices and not reasoning and not other_sector)
+    return bool(prices and not other_sector)
 
 
 def parse_prices_intent(query: str) -> PricesIntent:
@@ -71,6 +70,14 @@ def parse_prices_intent(query: str) -> PricesIntent:
             requests.append(PriceRequest(indicator='wpi', category=category))
     if start and end and (int(end[:4]) - int(start[:4])) * 12 + int(end[5:]) - int(start[5:]) >= 120:
         errors.append('Requested period range exceeds 120 months.')
+    measures = []
+    if re.search(r'\bmom\b|month[ -]on[ -]month', q):
+        measures.append('mom')
+    if re.search(r'\byoy\b|year[ -]on[ -]year', q):
+        measures.append('yoy')
+    if re.search(r'\bindex levels?\b', q):
+        measures.append('index')
+    requests = [r.model_copy(update={'measure': measure}) for r in requests for measure in (measures or ['yoy'])]
     return PricesIntent(source=source, operation='comparison' if comparison else 'trend' if trend else 'latest',
                         countries=countries, geography=countries[0] if len(countries) == 1 else 'India', lookback_months=lookback,
                         requests=requests, base_year=base[1] if base else None,

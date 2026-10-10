@@ -27,6 +27,8 @@ class PlatformSettings(BaseSettings):
     WORKSPACE_ROOT: Path = PROJECT_ROOT
     BACKEND_ROOT: Path = BACKEND_ROOT
     DATA_DIR: Path = BACKEND_ROOT / "real_sector" / "data"
+    CLAIM_AUDIT_ENABLED: bool = False
+    CLAIM_AUDIT_PATH: Path = BACKEND_ROOT / 'data' / 'claim_audit.sqlite3'
 
     # API & Port Settings
     PORT: int = 8000
