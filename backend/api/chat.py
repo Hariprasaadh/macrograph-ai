@@ -32,6 +32,13 @@ from api.chat_helpers import (
     _sector_progress_events,
 )
 
+try:
+    from core.research import safe_extra
+    from core.research.consensus import build_consensus
+    from core.research.model_card import build_model_card
+except Exception:  # optional research layer; chat must work without it
+    safe_extra = None
+
 router = APIRouter(tags=["Chat"])
 
 
@@ -284,6 +291,12 @@ async def stream_chat(request: ChatMessageRequest):
                 "confidence_score": final_state.get("confidence_score"),
                 "a2a": a2a_summary(final_state),
             }
+            if safe_extra is not None:
+                for _key, _builder in (("consensus", build_consensus), ("model_card", build_model_card)):
+                    _extra = safe_extra(_key, _builder, final_state)
+                    if _extra is not None:
+                        done_payload[_key] = _extra
+                done_payload["live_baseline_ids"] = final_state.get("live_baseline_ids", [])
             yield f"data: {json.dumps(done_payload)}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

@@ -6,7 +6,7 @@ import { GoogleAuthModal } from './components/GoogleAuthModal';
 import { Sidebar } from './components/Sidebar';
 import { DashboardView } from './components/DashboardView';
 import { ChatWorkspace } from './components/ChatWorkspace';
-import { KnowledgeGraphView } from './components/KnowledgeGraphView';
+import { CausalLabView } from './components/lab/CausalLabView';
 import { A2ARegistryView } from './components/A2ARegistryView';
 
 export const App: React.FC = () => {
@@ -95,7 +95,7 @@ export const App: React.FC = () => {
                 onSelectAgent={(agentId) => setSelectedAgentId(agentId)}
               />
             )}
-            {currentView === 'knowledge_graph' && <KnowledgeGraphView />}
+            {currentView === 'knowledge_graph' && <CausalLabView />}
             {currentView === 'a2a_registry' && <A2ARegistryView />}
           </main>
         </div>

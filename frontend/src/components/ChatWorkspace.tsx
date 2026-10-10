@@ -22,6 +22,9 @@ import {
 import { A2ASummary, ChatMessage, CitationItem, StreamStep } from '../types';
 import { A2ATracePanel } from './A2ATracePanel';
 import { MermaidDiagram } from './MermaidDiagram';
+import { ModelCardStrip } from './chat/ModelCardStrip';
+import { DebateDag } from './chat/DebateDag';
+import type { ConsensusPayload, ModelCardPayload } from '../types/research';
 import { MarkdownMessage } from './chat/MarkdownMessage';
 import { CopyButton } from './chat/CopyButton';
 import { SECTOR_AGENTS } from '../data/agents';
@@ -368,6 +371,8 @@ interface StreamEvent {
   confidence_score?: number | null;
   freshness?: Record<string, string>;
   a2a?: A2ASummary;
+  consensus?: ConsensusPayload;
+  model_card?: ModelCardPayload;
 }
 
 type DonePayload = StreamEvent;
@@ -565,6 +570,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 mermaidDiagram: finalDonePayload?.mermaid_diagram,
                 confidenceScore: finalDonePayload?.confidence_score ?? undefined,
                 a2a: finalDonePayload?.a2a,
+                consensus: finalDonePayload?.consensus,
+                modelCard: finalDonePayload?.model_card,
                 dataStatus: finalDonePayload?.status,
                 dataFreshness: finalDonePayload?.freshness,
                 isStreaming: false,
@@ -1004,6 +1011,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
               )}
 
               {message.a2a && <A2ATracePanel a2a={message.a2a} />}
+              {message.modelCard && <ModelCardStrip card={message.modelCard} />}
+              {message.consensus && <DebateDag consensus={message.consensus} a2a={message.a2a} />}
 
               {/* Reports embed the diagram inline as a mermaid fence; only append it when the text has none */}
               {message.mermaidDiagram && !message.content.includes('```mermaid') && (

@@ -5,8 +5,10 @@ Knowledge Graph APIs, FastMCP Servers, and Standard A2A Protocol Endpoints.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
+import os
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, HTTPException, Query
@@ -54,8 +56,18 @@ async def gateway_lifespan(application: FastAPI):
     if neo4j_store.enabled:
         synced = await run_in_threadpool(neo4j_store.sync_ontology)
         logging.getLogger(__name__).info("Neo4j ontology mirror sync ok=%s", synced)
+    # Optional 08:15 IST daily brief loop; off unless BRIEF_CRON_ENABLED=true so existing runs/tests are unaffected.
+    brief_task = None
+    if os.getenv("BRIEF_CRON_ENABLED", "false").lower() == "true":
+        try:
+            from core.briefing.job import brief_cron_loop
+            brief_task = asyncio.create_task(brief_cron_loop())
+        except Exception as exc:
+            logging.getLogger(__name__).warning("Daily brief loop not started: %s", exc)
     async with agriculture_mcp_http.lifespan(agriculture_mcp_http):
         yield
+    if brief_task is not None:
+        brief_task.cancel()
     neo4j_store.close()
 
 app = FastAPI(
@@ -277,3 +289,11 @@ def get_agent_registry() -> Dict[str, Any]:
 app.include_router(a2a_api_router)
 app.include_router(dashboard_router)
 app.include_router(chat_router)
+
+# Optional research routers: a failure here must never block gateway startup.
+import importlib
+for _router_mod in ("api.research", "api.brief"):
+    try:
+        app.include_router(importlib.import_module(_router_mod).router)
+    except Exception as _exc:
+        logging.getLogger(__name__).warning("Optional router %s skipped: %s", _router_mod, _exc)

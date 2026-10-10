@@ -2,6 +2,7 @@ import React from 'react';
 import { Layers, ShieldCheck } from 'lucide-react';
 import { DashboardOverview, CitationItem } from '../../types';
 import { DailyBriefingCard } from '../studio/DailyBriefingCard';
+import { EarlyWarningBrief } from '../studio/EarlyWarningBrief';
 import { AnomalyFeed } from '../studio/AnomalyFeed';
 import { CrossSectorStudio } from '../studio/CrossSectorStudio';
 import { ScenarioSimulator } from '../studio/ScenarioSimulator';
@@ -25,7 +26,7 @@ export const AllSectorsTabView: React.FC<AllSectorsTabViewProps> = ({
   return (
     <div className="space-y-8 animate-fadeIn">
       {/* 1. Daily Intelligence Brief */}
-      <DailyBriefingCard briefing={data?.daily_brief} />
+      <EarlyWarningBrief fallback={<DailyBriefingCard briefing={data?.daily_brief} />} />
 
       {/* 2. Anomaly Detection Feed */}
       <AnomalyFeed anomalies={data?.anomalies || []} onInspectEvidence={openEvidence} />

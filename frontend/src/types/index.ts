@@ -153,6 +153,8 @@ export interface ChatMessage {
   dataStatus?: 'completed' | 'partial' | 'unavailable' | 'failed' | string;
   dataFreshness?: Record<string, string>;
   a2a?: A2ASummary;
+  consensus?: import('./research').ConsensusPayload;
+  modelCard?: import('./research').ModelCardPayload;
   isStreaming?: boolean;
 }
 
