@@ -1,0 +1,14 @@
+flowchart TB
+    E["each edge in ontology"] --> G1["get source series and target series"]
+    G1 --> HAS{"both series available?"}
+    HAS -->|"no"| U1["UNTESTABLE_NO_DATA<br/>class SEEDED"]
+    HAS -->|"yes"| AL["align by YYYY-MM, overlap months n"]
+    AL --> NQ{"n at least 10?"}
+    NQ -->|"no"| U2["UNTESTABLE_N<br/>class SEEDED"]
+    NQ -->|"yes"| GR["Granger test, max lag 2<br/>(ssr F-test, minimum p over lags)"]
+    GR --> PV{"p-value computed?"}
+    PV -->|"no"| U2
+    PV -->|"yes"| EM["EMPIRICAL<br/>p, optimal lag, significant flag"]
+    EM --> CACHE["cache 300 seconds"]
+    U1 --> CACHE
+    U2 --> CACHE

@@ -1,0 +1,12 @@
+flowchart TB
+    Q["User query"] --> SC["Tokenise and stem, then score every Agent Card<br/>capabilities, skill tags, keywords<br/>a phrase shared by n agents counts 1 over n"]
+    SC --> TH{"Agent at or above<br/>distinctive threshold?"}
+    TH -->|"yes"| TOP["Select up to 5 best agents"]
+    TH -->|"no"| LLM{"LLM routing enabled and key present?"}
+    LLM -->|"yes"| ASK["Ask LLM for JSON array,<br/>intersect with registered agent ids"]
+    LLM -->|"no"| DEF["Use A2A_DEFAULT_AGENTS"]
+    ASK --> NE{"Any agent left?"}
+    NE -->|"yes"| TOP
+    NE -->|"no"| DEF
+    TOP --> DEC["RoutingDecision: method and choices"]
+    DEF --> DEC

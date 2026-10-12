@@ -1,0 +1,10 @@
+flowchart TB
+    L1["1 PRESENTATION: React 18, TypeScript, Vite, Tailwind<br/>landing and sign-in, dashboard, chat, Causal Lab, A2A registry"]
+    L2["2 GATEWAY: FastAPI<br/>chat, dashboard, research, brief, analyze, A2A API, sector sub-apps"]
+    L3["3 ORCHESTRATION: LangGraph<br/>decompose, parallel A2A execute, KG enrichment, synthesis"]
+    L4["4 AGENTS: 10 sector agents<br/>real, agriculture, prices, monetary, finance,<br/>capital markets, fiscal, external, labour, services"]
+    L5["5 PROTOCOLS<br/>A2A: server, client, router, guards, trace<br/>MCP: FastMCP servers and client"]
+    L6["6 KNOWLEDGE AND ANALYSIS<br/>ontology and NetworkX, scenario engine,<br/>research lab, claim verification library"]
+    L7["7 DATA<br/>macro_store.duckdb, sector DuckDB stores,<br/>claim_audits.sqlite3, official sources, LLM API"]
+    L1 --> L2 --> L3 --> L4 --> L5 --> L7
+    L3 --> L6 --> L7

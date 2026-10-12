@@ -1,0 +1,33 @@
+flowchart LR
+    U1["Macro analyst"]
+    U2["Researcher or student"]
+    U3["Developer or API client"]
+    subgraph SYS["Macrograph-AI platform"]
+        direction TB
+        WEB["Web application"]
+        API["FastAPI gateway"]
+        CORE["Agents, orchestrator, knowledge graph"]
+        STORE[("DuckDB and SQLite")]
+        WEB --> API --> CORE --> STORE
+    end
+    subgraph EXT["External services"]
+        D1["MoSPI e-Sankhyiki MCP"]
+        D2["RBI DBIE"]
+        D3["Yahoo Finance"]
+        D4["IMF WEO, CGA, GST data"]
+        D5["Tavily and web search"]
+        L1["Groq LLM API"]
+        G1["Google Identity Services"]
+        N1[("Neo4j, optional")]
+    end
+    U1 --> WEB
+    U2 --> WEB
+    U3 --> API
+    CORE --> D1
+    CORE --> D2
+    CORE --> D3
+    CORE --> D4
+    CORE --> D5
+    CORE --> L1
+    CORE -.-> N1
+    WEB --> G1

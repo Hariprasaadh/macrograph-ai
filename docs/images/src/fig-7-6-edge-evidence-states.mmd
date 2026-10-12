@@ -1,0 +1,9 @@
+stateDiagram-v2
+    [*] --> Seeded : typed into ontology
+    Seeded --> UntestableData : series missing
+    Seeded --> UntestableN : fewer than 10 overlap months
+    Seeded --> Empirical : Granger test runs
+    Empirical --> Seeded : data removed or cache expired
+    Empirical --> Corrected : roadmap, BH-corrected p-values
+    Corrected --> Stable : roadmap, sub-sample stability
+    Stable --> [*]

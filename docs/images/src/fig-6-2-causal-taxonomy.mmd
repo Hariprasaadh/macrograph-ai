@@ -1,0 +1,7 @@
+flowchart BT
+    T1["Tier 1 THEORY (3)<br/>qualitative economic consensus"]
+    T2["Tier 2 STATISTICAL_ASSOCIATION (3)<br/>contemporaneous correlation with p-value"]
+    T3["Tier 3 LAGGED_RELATIONSHIP (2)<br/>cross-correlation at lag k"]
+    T4["Tier 4 GRANGER_PREDICTIVE (2)<br/>Granger F-test predictive causality"]
+    T5["Tier 5 STRUCTURAL_CAUSAL_MODEL (2)<br/>explicit SCM or DAG with identification conditions"]
+    T1 --> T2 --> T3 --> T4 --> T5

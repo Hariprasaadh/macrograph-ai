@@ -1,0 +1,15 @@
+flowchart TB
+    Q["User query"] --> D{"Query in sector domain?"}
+    D -->|"no"| DECL["Politely decline and suggest correct agent"]
+    D -->|"yes"| SEL["Select services and MCP tools"]
+    SEL --> PAR{"concurrent"}
+    PAR --> OFF["Official observations via own MCP tools"]
+    PAR --> MKT["Market proxies, e.g. crude, gold, USD/INR, NIFTY"]
+    PAR --> NEWS["Tavily news and web research"]
+    PAR --> PEER["Peer indicators via A2A (finance, fiscal)"]
+    OFF --> CONS["Consolidated dataset"]
+    MKT --> CONS
+    NEWS --> CONS
+    PEER --> CONS
+    CONS --> RSN["reason_over_sector_data<br/>core/sector_reasoning.py"]
+    RSN --> RES["Report plus data_context plus citations plus freshness"]

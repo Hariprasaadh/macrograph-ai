@@ -1,0 +1,13 @@
+flowchart TB
+    MT["RBI meeting dates since 2016"] --> VD["Point-in-time data before each meeting"]
+    VD --> ARMS
+    subgraph ARMS["Arms"]
+        R1["Always HOLD"]
+        R2["Taylor rule"]
+        R3["Rule baseline of the simulator"]
+        R4["Single LLM"]
+        R5["Three-persona LLM"]
+    end
+    ARMS --> PRED["Predicted decisions and dissent"]
+    ACT["Actual decisions and vote splits from published minutes"] --> CMP["Compare: accuracy, turning points, dissent correlation"]
+    PRED --> CMP

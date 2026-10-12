@@ -85,3 +85,12 @@
 - [x] Tests: test_kg_schema, test_kg_networkx, test_causal_engine, test_kg_neo4j, test_kg_orchestrator, test_kg_api, test_llm_client.
 - [ ] Follow-ups: regenerate `uv.lock` (`uv lock`) for the neo4j extra; fix KnowledgeGraphView field names and render Mermaid in the UI; Qdrant documentary evidence; real/agri/labour sectors emitting seed IDs.
 - [x] Live E2E fixes: sector-native IDs alias onto ontology; live observations seed scenario baselines; prompt carries shocked_peak; KnowledgeGraphView rewritten against real API shape; uv.lock regenerated. 
+
+
+## Status 2026-10-12: documentation refresh and review
+- [x] README, CLAUDE.md, high-level overview, API guide, A2A doc, claim-verification doc and `.agents/MEMORY.md` aligned with the code.
+- [x] Added `docs/status-and-roadmap.md` (maturity, prioritised review findings, roadmap) and `docs/publication-plan.md` (novelty assessment, contributions, evaluation design).
+- [ ] P0 fixes from the review: wire `core/verification`, fix `trade_balance -> usd_inr` sign, replace seeded edge statistics with estimated ones, surface silent failures.
+- [ ] Add remaining sector test directories to pytest `testpaths`.
+- [ ] Remove tracked binaries (`backend/data/claim_audits.sqlite3`, Vite timestamp file).
+- [ ] Build `eval/` harness per the publication plan.

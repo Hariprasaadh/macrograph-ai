@@ -1,0 +1,9 @@
+flowchart TB
+    REG["SourceRegistry<br/>adapter per indicator id"] --> SCH["IngestionScheduler<br/>run_ingestion_pipeline"]
+    SCH --> AD["Source adapter<br/>e.g. MoSPI client"]
+    AD --> VA["ObservationValidator<br/>numeric range, period format"]
+    VA --> NO["Normalizer<br/>to CanonicalObservation"]
+    NO --> PV["Provenance hash<br/>SHA-256 of payload"]
+    PV --> MS[("macro_store.duckdb<br/>canonical_observations")]
+    VA -->|"invalid"| ERR["ValidationError, not stored"]
+    MS --> RD["get_canonical_series(indicator_id)"]

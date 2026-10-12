@@ -1,0 +1,14 @@
+flowchart TB
+    A["all series with at least 8 points"] --> Z["z-score of latest vs trailing window of 12"]
+    Z --> T{"abs(z) greater than 2.0?"}
+    T -->|"no"| N["normal"]
+    T -->|"yes"| NB["neighbours in knowledge graph<br/>upstream and downstream"]
+    NB --> HD{"any neighbour with data?"}
+    HD -->|"no"| UL["UNLINKED<br/>trust: LOW, verify source"]
+    HD -->|"yes"| AN{"any neighbour anomalous?"}
+    AN -->|"yes"| PR["PROPAGATING<br/>score = anomalous / with-data neighbours<br/>culprit path of relation ids"]
+    AN -->|"no"| IS["ISOLATED<br/>trust: LOW, verify source"]
+    PR --> EX["expected downstream propagation list"]
+    IS --> EX
+    UL --> EX
+    INJ["optional SIM injection id:z"] -.-> Z

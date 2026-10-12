@@ -1,0 +1,21 @@
+flowchart LR
+    PR["prices_sector<br/>CPI, WPI"]
+    MO["monetary_sector<br/>repo, M3, liquidity"]
+    FI["finance_sector<br/>credit, NPA, rates"]
+    FS["fiscal_sector<br/>deficit, GST, capex"]
+    EX["external_sector<br/>reserves, trade, USD/INR"]
+    RE["real_sector<br/>GDP, GVA, IIP"]
+    CM["capital_market_sector<br/>NIFTY, VIX, flows"]
+    AG["agriculture_sector<br/>crops, MSP, monsoon"]
+    LA["labour_sector<br/>PLFS, EPFO"]
+    SV["services_sector<br/>services GVA, PMI"]
+    FI -->|"repo_rate"| MO
+    FI -->|"cpi_headline"| PR
+    FS -->|"repo_rate"| MO
+    FS -->|"cpi_headline"| PR
+    FS -->|"bank_credit_growth"| FI
+    EX -->|"repo_rate"| MO
+    EX -->|"cpi_headline"| PR
+    RE ~~~ CM
+    AG ~~~ LA
+    SV ~~~ RE

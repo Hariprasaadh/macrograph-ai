@@ -1,0 +1,49 @@
+flowchart TB
+    subgraph AGR["Agriculture"]
+        MON["Monsoon departure"]
+        FGP["Foodgrain production"]
+    end
+    subgraph PRC["Prices"]
+        BRT["Brent crude"]
+        WPI["WPI all"]
+        CPI["CPI headline"]
+        CPF["CPI food"]
+    end
+    subgraph MNT["Monetary"]
+        REP["Repo rate"]
+        BCG["Bank credit growth"]
+    end
+    subgraph EXT["External"]
+        TRB["Trade balance"]
+        USD["USD/INR"]
+    end
+    subgraph CAP["Capital markets"]
+        BNF["Bank NIFTY"]
+    end
+    subgraph FIS["Fiscal"]
+        CPX["Central capex"]
+    end
+    subgraph REA["Real"]
+        GFC["GFCF investment"]
+        IIP["IIP growth"]
+        GDP["GDP growth"]
+    end
+    BRT -->|"1M +"| WPI
+    WPI -->|"2M +"| CPI
+    CPI -->|"1M +"| REP
+    REP -->|"3M -"| BCG
+    BCG -->|"2M +"| IIP
+    IIP -->|"1M +"| GDP
+    BRT -->|"1M -"| TRB
+    TRB -->|"1M +"| USD
+    REP -->|"1M -"| BNF
+    CPX -->|"2M +"| GFC
+    MON -->|"3M +"| FGP
+    FGP -->|"2M -"| CPF
+    subgraph ISO["Nodes without edges"]
+        N1["NIFTY 50"]
+        N2["India VIX"]
+        N3["Forex reserves"]
+        N4["Debt to GDP"]
+        N5["EPFO additions"]
+    end

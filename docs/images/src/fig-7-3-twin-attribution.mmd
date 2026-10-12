@@ -1,0 +1,15 @@
+flowchart TB
+    S["shock variable and magnitude"] --> B["simulate with shock 0 (base world)"]
+    S --> H["simulate with shock s (shocked world)"]
+    B --> CMP["compare per node"]
+    H --> CMP
+    CMP --> D["delta, percent of baseline, gain per unit"]
+    CMP --> L["lag months from impact list"]
+    CMP --> P["for each target: shortest path"]
+    P --> LG["hop weight = log of abs(0.55 times confidence)"]
+    LG --> SH["share per hop = hop weight / sum of weights"]
+    SH --> WK["weakest link = hop with largest share"]
+    P --> SF["sign flips = count of inverse edges"]
+    D --> OUT["payload: base, shocked, delta, attribution"]
+    WK --> OUT
+    SF --> OUT

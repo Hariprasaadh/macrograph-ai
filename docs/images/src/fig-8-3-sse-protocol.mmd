@@ -1,0 +1,14 @@
+sequenceDiagram
+    participant B as ChatWorkspace
+    participant S as POST /api/v1/chat/stream
+    B->>S: JSON message and agent (AbortController signal)
+    loop while agents run
+        S-->>B: data type step, request_id, status running
+        S-->>B: data type step, same request_id, status completed
+    end
+    loop report text
+        S-->>B: data type token, text chunk
+    end
+    S-->>B: data type done, full_report, citations, a2a, consensus, model_card, causal_paths, scenario_result
+    B->>B: render markdown, tables, Mermaid, trace panel, model card
+    Note over B,S: User sends a new question: previous request aborted

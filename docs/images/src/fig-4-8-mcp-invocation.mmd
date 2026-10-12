@@ -1,0 +1,23 @@
+sequenceDiagram
+    participant A as Sector agent
+    participant C as FastMCP client
+    participant T as Sector MCP tool
+    participant L as Live official source
+    participant D as Sector DuckDB cache
+    A->>C: call tool with typed parameters
+    C->>T: MCP request
+    T->>L: fetch with Tenacity retry
+    alt live data available
+        L-->>T: payload
+        T->>D: upsert snapshot (parameterised SQL)
+        T-->>C: observation, freshness live, citation
+    else live source failed
+        T->>D: read latest snapshot
+        alt snapshot exists
+            D-->>T: cached row
+            T-->>C: observation, freshness cached, citation
+        else no snapshot
+            T-->>C: status unavailable, reason
+        end
+    end
+    C-->>A: validated tool result

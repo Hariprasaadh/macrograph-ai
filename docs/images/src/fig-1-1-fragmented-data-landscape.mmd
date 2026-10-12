@@ -1,0 +1,24 @@
+flowchart TB
+    subgraph SRC["Publishing agencies"]
+        A1["MoSPI: CPI, WPI, GDP, IIP, PLFS"]
+        A2["RBI DBIE: rates, credit, NPA, reserves"]
+        A3["CGA, Union Budget, GST Council"]
+        A4["DGCI&S, NSE, SEBI, IMD, EPFO"]
+    end
+    subgraph FMT["Formats"]
+        F1["APIs and MCP endpoints"]
+        F2["Excel and PDF bulletins"]
+        F3["HTML tables and press releases"]
+    end
+    subgraph MAN["Manual analyst workflow"]
+        M1["Locate each series"] --> M2["Clean and align periods and units"] --> M3["Reason across sectors"] --> M4["Write cited report"]
+    end
+    subgraph PRB["Resulting problems"]
+        P1["Slow and error prone"]
+        P2["Inconsistent definitions"]
+        P3["Weak provenance"]
+    end
+    SRC --> FMT --> M1
+    M2 --> P2
+    M3 --> P1
+    M4 --> P3

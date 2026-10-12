@@ -1,0 +1,19 @@
+flowchart TB
+    OBS["Retrieved observations"] --> EVD["build_evidence<br/>content-addressed ids"]
+    SRC["Retrieved source passages"] --> EVD
+    PROP["Claim proposals<br/>rules or model"] --> SCH{"strict schema valid?<br/>extra fields forbidden"}
+    SCH -->|"no"| REJ0["rejected: invalid_claim_schema"]
+    SCH -->|"yes"| TYP{"claim type"}
+    TYP -->|"observation, rate_change,<br/>price_direction_yoy"| NUM["numeric verification<br/>Decimal, units, period, base, scope"]
+    TYP -->|"reported_explanation"| QUO["exact complete-sentence match<br/>in retrieved passage"]
+    TYP -->|"general_mechanism"| TPL["reviewed template"]
+    TYP -->|"statistical_finding"| NOR["no registered analysis: insufficient_evidence"]
+    EVD --> NUM
+    EVD --> QUO
+    NUM --> RES["VerificationResult"]
+    QUO --> RES
+    TPL --> RES
+    NOR --> RES
+    REJ0 --> RES
+    RES --> REND["render_report<br/>only controlled text, withheld count"]
+    RES --> AUD[("append-only SQLite audit")]

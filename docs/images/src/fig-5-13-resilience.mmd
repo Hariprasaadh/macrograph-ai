@@ -1,0 +1,10 @@
+flowchart TB
+    CALL["External call"] --> TRY{"Success?"}
+    TRY -->|"yes"| OK["Return data"]
+    TRY -->|"no"| RT{"Attempts left?"}
+    RT -->|"yes"| WAIT["Exponential backoff"] --> CALL
+    RT -->|"no"| CACHE{"Cached snapshot?"}
+    CACHE -->|"yes"| CV["Return cached, freshness cached"]
+    CACHE -->|"no"| UN["Structured unavailable result"]
+    UN --> AGG["A2A error recorded"]
+    AGG --> REP["Report lists unavailable agent data"]

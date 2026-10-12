@@ -1,0 +1,16 @@
+flowchart TB
+    IN["A2ARequest received"] --> G1{"Receiver registered?"}
+    G1 -->|"no"| F["Failed A2AResponse<br/>stable error code, see Figure A.3"]
+    G1 -->|"yes"| G2{"Loop guard passed?"}
+    G2 -->|"no"| F
+    G2 -->|"yes"| G3{"Sector edge declared<br/>or sender unrestricted?"}
+    G3 -->|"no"| F
+    G3 -->|"yes"| G4{"Task supported<br/>and handler present?"}
+    G4 -->|"no"| F
+    G4 -->|"yes"| G5{"Parameters valid?"}
+    G5 -->|"no"| F
+    G5 -->|"yes"| H["Run handler with timeout"]
+    H -->|"timeout or error"| F
+    H -->|"output"| G6{"Valid result type<br/>and sources present?"}
+    G6 -->|"no"| F
+    G6 -->|"yes"| OK["A2AResponse: success or partial"]

@@ -1,0 +1,18 @@
+flowchart TB
+    C{"CPI available?"} -->|"no"| H0["HOLD: no basis to move"]
+    C -->|"yes"| PER{"persona"}
+    PER -->|"hawk"| HW{"CPI above 6?"}
+    HW -->|"yes"| HK1["HIKE"]
+    HW -->|"no"| HH["HOLD"]
+    PER -->|"dove"| DV{"CPI below 2?"}
+    DV -->|"yes"| CT1["CUT"]
+    DV -->|"no"| DG{"growth weakening and CPI at most 6?"}
+    DG -->|"yes"| CT2["CUT"]
+    DG -->|"no"| DH["HOLD"]
+    PER -->|"centrist"| CE1{"CPI above 6?"}
+    CE1 -->|"yes"| HK2["HIKE"]
+    CE1 -->|"no"| CE2{"CPI below 2?"}
+    CE2 -->|"yes"| CT3["CUT"]
+    CE2 -->|"no"| CE3{"growth weakening and CPI below 4?"}
+    CE3 -->|"yes"| CT4["CUT"]
+    CE3 -->|"no"| CH["HOLD"]

@@ -1,0 +1,12 @@
+flowchart TB
+    A["get_downstream_impacts(shock_id)"] --> B{"Node in graph?"}
+    B -->|"no"| Z["return empty list"]
+    B -->|"yes"| C["descendants(shock_id)"]
+    C --> D["for each target"]
+    D --> E["shortest_path by hops"]
+    E --> F["pick highest-confidence edge per hop"]
+    F --> G["total lag = sum of edge lags"]
+    F --> H["cumulative confidence = product of edge confidences"]
+    G --> I["impact record: target, hops, lag, confidence, mechanism chain"]
+    H --> I
+    I --> J["sort by hops then by confidence descending"]

@@ -207,6 +207,8 @@ pytest backend/tests/test_a2a_protocol.py backend/tests/test_a2a_integration.py 
 - Traces and the duplicate-detection state are per process and in memory.
 - `sector_analysis` results for markdown-only sectors reach the orchestrator as report text plus artifact-level provenance, not per-indicator citations.
 - Only the three peer tasks above exist; adding more is a handler plus a declared dependency.
+- The wire format and server are a project-native implementation shaped after the A2A specification. The `a2a-sdk` package is listed in `pyproject.toml` but is not imported at runtime; do not claim SDK interoperability without testing it against an external A2A client.
+- The research-lab and daily-brief endpoints do not use A2A; they read cached telemetry and the knowledge graph directly.
 
 ## Frontend integration
 

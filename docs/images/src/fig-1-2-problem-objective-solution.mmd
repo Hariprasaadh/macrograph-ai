@@ -1,0 +1,27 @@
+flowchart LR
+    subgraph P["Problems"]
+        P1["P1 Data scattered across agencies"]
+        P2["P2 Cross-sector reasoning is manual"]
+        P3["P3 LLM answers can hallucinate numbers"]
+        P4["P4 Causal links are implicit"]
+        P5["P5 Hard to audit where a number came from"]
+    end
+    subgraph O["Objectives"]
+        O1["O1 Sector-wise data access"]
+        O2["O2 Coordinated multi-agent reasoning"]
+        O3["O3 Source-grounded answers"]
+        O4["O4 Explicit causal model and scenarios"]
+        O5["O5 Traceable provenance"]
+    end
+    subgraph S["Implemented components"]
+        S1["10 FastMCP sector servers<br/>and DuckDB stores"]
+        S2["A2A layer and<br/>LangGraph orchestrator"]
+        S3["No-source-no-answer rule,<br/>structured unavailable status"]
+        S4["Knowledge graph and<br/>scenario engine"]
+        S5["SourceProvenance, SHA-256<br/>provenance hash, A2A trace"]
+    end
+    P1 --> O1 --> S1
+    P2 --> O2 --> S2
+    P3 --> O3 --> S3
+    P4 --> O4 --> S4
+    P5 --> O5 --> S5

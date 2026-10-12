@@ -1,0 +1,10 @@
+flowchart TB
+    OBS["collected_observations"] --> F{"Indicator in KG,<br/>numeric, data_status usable?"}
+    F -->|"yes"| LIVE["live baseline"]
+    F -->|"no"| DEF["DEFAULT_BASELINES"]
+    LIVE --> M["merge: live overrides default"]
+    DEF --> M
+    M --> SIM["simulate_scenario(baseline_values)"]
+    LIVE --> IDS["live_baseline_ids"]
+    IDS --> NOTE["baseline note in report and prompt"]
+    SIM --> RES["scenario_result"]

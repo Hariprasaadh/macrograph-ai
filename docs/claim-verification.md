@@ -1,5 +1,7 @@
 # Economic claim verification: Prices pilot
 
+> **Status (2026-10-12): library only, not wired.** The shared pipeline in `backend/core/verification` is implemented and covered by `backend/tests/test_claim_verification.py`. The Prices-specific integration described below (`prices_sector/verification.py`, `prices_sector_data.verification`, `data_context.verification`) was removed: `prices_sector/agent.py` now passes observations through with citations and the LLM cites periods directly. No sector and not the orchestrator currently call `verify_claims`, so no live answer is verified by this layer. Sections that mention Prices wiring describe the removed integration and are kept as the design reference. Re-integration across all sectors is the first work item in [publication-plan.md](publication-plan.md).
+
 Direct Prices chat and the Prices A2A artifact now use a shared verification layer
 before rendering. Economic values come from retrieved observations. Explicit rules
 check those values; no economic answer is hardcoded. Fixed prose templates express

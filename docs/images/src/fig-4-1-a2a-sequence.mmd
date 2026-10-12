@@ -1,0 +1,15 @@
+sequenceDiagram
+    participant O as Orchestrator
+    participant S as A2AServer
+    participant X as external_sector handler
+    participant M as monetary_sector handler
+    O->>S: A2ARequest sector_analysis (depth 0)
+    S->>S: guards, dependency check, capability check, schema check
+    S->>X: handler(request, context)
+    X->>S: A2ARequest repo_rate (parent = first request, depth 1)
+    S->>S: guards, edge external to monetary allowed
+    S->>M: handler
+    M-->>S: HandlerOutput (IndicatorSignal and SourceProvenance)
+    S-->>X: A2AResponse (sources preserved)
+    X-->>S: HandlerOutput
+    S-->>O: A2AResponse (report, observations, sources)

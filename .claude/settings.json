@@ -1,5 +1,7 @@
 {
   "enabledPlugins": {
-    "frontend-design@anthropic-plugin-directory": true
+    "frontend-design@anthropic-plugin-directory": true,
+    "document-skills@anthropic-agent-skills": true,
+    "skill-creator@claude-plugins-official": true
   }
 }

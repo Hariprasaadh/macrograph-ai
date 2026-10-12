@@ -1,0 +1,15 @@
+flowchart LR
+    subgraph CARD["AgentCard"]
+        I["agent_id, name, description, version"]
+        C["capabilities: routing tags"]
+        SK["skills: name, description, tags"]
+        ST["supported_tasks: sector_analysis, repo_rate, ..."]
+        SC["input_schema A2ARequest<br/>output_schema A2AResponse"]
+        MD["metadata: sector, keywords"]
+        AU["url and auth_requirements"]
+    end
+    REG["AgentRegistry"] --> CARD
+    CARD --> RT["route_query scoring"]
+    CARD --> SV["A2AServer capability check"]
+    CARD --> UIR["A2A registry view and /a2a/registry"]
+    HR["register_handler()"] -->|"appends task"| ST

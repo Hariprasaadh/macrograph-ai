@@ -1,0 +1,11 @@
+flowchart TB
+    M0["macro_store.duckdb: canonical_indicators, canonical_observations,<br/>macro_series, daily_briefs, brief_news_cache"]
+    MON["monetary: policy_rates, money_supply, system_liquidity, monetary_stance"]
+    FIN["finance: bank_credit_growth, asset_quality, lending_rates, deposits_cd_ratio"]
+    FIS["fiscal: union_fiscal_deficit, general_govt_debt, gst_collections, mospi_tax_aggregates"]
+    EXT["external: forex_reserves, trade_balance, bop, exchange_rates,<br/>external_flows, remittances_invisibles, external_debt"]
+    LAB["labour: unemployment, lfpr, wpr, labour_conditions"]
+    REA["real: iip_sectoral, iip_use_based, core_industries,<br/>manufacturing_gva, market_context"]
+    SER["services: isp_growth, services_gva, services_pmi, transport_freight"]
+    CAP["capital markets: nifty_snapshot, market_history, india_vix, market_breadth,<br/>gsec_yields, mutual_fund_flows, fpi_flows, corporate_earnings,<br/>sectoral_performance, primary_market_ipos,<br/>investor_participation, market_economy_linkages"]
+    M0 ~~~ MON ~~~ FIN ~~~ FIS ~~~ EXT ~~~ LAB ~~~ REA ~~~ SER ~~~ CAP

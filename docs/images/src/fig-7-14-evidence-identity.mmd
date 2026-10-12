@@ -1,0 +1,7 @@
+flowchart TB
+    REC["Observation record"] --> STRIP["remove observation_id, retrieved_at, request_id<br/>and volatile metadata: freshness, coverage, geography labels"]
+    STRIP --> CAN["canonical JSON, sorted keys"]
+    CAN --> HASH["SHA-256"]
+    HASH --> ID["obs_ + hex digest"]
+    REV["Revision or definition change"] --> NEWID["different id"]
+    RE["Repeated retrieval, same value"] --> SAME["same id"]

@@ -1,0 +1,21 @@
+sequenceDiagram
+    participant GW as Gateway lifespan
+    participant ST as Neo4jKnowledgeGraphStore
+    participant ON as MacroeconomicOntology
+    participant DB as Neo4j server
+    GW->>ST: enabled?
+    alt NEO4J_URI empty
+        ST-->>GW: disabled, skip
+    else enabled
+        GW->>ST: sync_ontology (thread pool)
+        ST->>ON: read indicators and relationships
+        ST->>DB: create uniqueness constraint
+        loop each indicator
+            ST->>DB: MERGE node
+        end
+        loop each relationship
+            ST->>DB: MERGE AFFECTS edge with relation_id, type, lag, sign, confidence
+        end
+        Note over ST,DB: up to 3 attempts with exponential backoff
+        ST-->>GW: True or False
+    end

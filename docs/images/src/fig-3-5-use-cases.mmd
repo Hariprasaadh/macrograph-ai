@@ -1,0 +1,31 @@
+flowchart LR
+    A1(["Analyst"])
+    A2(["Researcher"])
+    A3(["API client"])
+    subgraph UC["Macrograph-AI use cases"]
+        U1["Sign in with Google"]
+        U2["View cross-sector dashboard"]
+        U3["Ask a single-sector question"]
+        U4["Ask a cross-sector question"]
+        U5["Inspect citations and evidence"]
+        U6["View A2A trace and registry"]
+        U7["Run scenario shock"]
+        U8["Explore causal graph"]
+        U9["Run anomaly radar"]
+        U10["Simulate MPC meeting"]
+        U11["Read daily brief"]
+        U12["Call analyze or simulate API"]
+    end
+    A1 --- U1
+    A1 --- U2
+    A1 --- U3
+    A1 --- U4
+    A1 --- U5
+    A1 --- U11
+    A2 --- U4
+    A2 --- U6
+    A2 --- U7
+    A2 --- U8
+    A2 --- U9
+    A2 --- U10
+    A3 --- U12

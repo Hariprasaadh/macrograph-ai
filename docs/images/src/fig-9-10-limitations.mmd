@@ -1,0 +1,26 @@
+flowchart LR
+    subgraph L["Limitation"]
+        L1["Edge p-values and confidences are curated priors"]
+        L2["Scenario engine is heuristic and unit-blind"]
+        L3["Claim verification not wired into answers"]
+        L4["Short time series for audits"]
+        L5["No document RAG"]
+        L6["Unauthenticated cost-bearing endpoints"]
+        L7["No formal evaluation yet"]
+    end
+    subgraph M["Mitigation or next step"]
+        M1["Estimate edges from long series"]
+        M2["Local projections or BVAR with back-tests"]
+        M3["Add verification gate to synthesis"]
+        M4["Ingest long histories from DBIE and MoSPI"]
+        M5["Index RBI minutes and Economic Survey with passage attribution"]
+        M6["Add API keys and rate limiting"]
+        M7["Build benchmark and ablations"]
+    end
+    L1 --> M1
+    L2 --> M2
+    L3 --> M3
+    L4 --> M4
+    L5 --> M5
+    L6 --> M6
+    L7 --> M7

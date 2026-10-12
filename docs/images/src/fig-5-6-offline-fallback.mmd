@@ -1,0 +1,12 @@
+flowchart TB
+    S["Stage needs LLM text<br/>routing, synthesis, sector reasoning, brief, MPC"] --> K{"API key resolved?"}
+    K -->|"no"| U["return unavailable notice"]
+    K -->|"yes"| CALL["call model with retry"]
+    CALL --> OKQ{"success?"}
+    OKQ -->|"yes"| TXT["use model text"]
+    OKQ -->|"no"| U
+    U --> DET["deterministic output"]
+    DET --> D1["routing: card scoring only"]
+    DET --> D2["synthesis: counts, paths, scenario list"]
+    DET --> D3["brief: pillar takeaways template"]
+    DET --> D4["MPC: rule-based votes"]

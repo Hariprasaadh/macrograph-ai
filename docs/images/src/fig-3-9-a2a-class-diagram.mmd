@@ -1,0 +1,81 @@
+classDiagram
+    class A2ARequest {
+        +str request_id
+        +str sender_agent
+        +str receiver_agent
+        +str task
+        +dict parameters
+        +str conversation_id
+        +str parent_request_id
+        +int depth
+        +tuple call_chain
+        +float timeout_seconds
+        +datetime timestamp
+    }
+    class A2AResponse {
+        +str request_id
+        +str sender_agent
+        +str receiver_agent
+        +str status
+        +result
+        +list sources
+        +list errors
+        +list follow_ups
+        +dict metadata
+    }
+    class SourceProvenance {
+        +str source_name
+        +str source_url
+        +str dataset
+        +str table
+        +str reporting_period
+        +datetime retrieved_at
+        +str record_reference
+    }
+    class A2AErrorInfo {
+        +ErrorCode code
+        +str message
+        +str agent
+    }
+    class HandlerOutput {
+        +result
+        +list sources
+        +str status
+        +list errors
+        +list follow_ups
+    }
+    class A2ACallContext {
+        +str conversation_id
+        +str request_id
+        +str agent_id
+        +int depth
+        +tuple call_chain
+    }
+    class IndicatorSignal {
+        +str owner_agent
+        +list observations
+    }
+    class IndicatorObservation {
+        +str indicator_id
+        +float value
+        +str unit
+        +str observation_period
+        +str data_status
+    }
+    class AgentCard {
+        +str agent_id
+        +str name
+        +list capabilities
+        +list skills
+        +list supported_tasks
+        +str input_schema
+        +str output_schema
+        +dict metadata
+    }
+    A2AResponse "1" o-- "0..*" SourceProvenance
+    A2AResponse "1" o-- "0..*" A2AErrorInfo
+    HandlerOutput "1" o-- "0..*" SourceProvenance
+    IndicatorSignal "1" o-- "1..*" IndicatorObservation
+    A2ARequest ..> A2AResponse : answered by
+    AgentCard ..> A2ARequest : advertises tasks for
+    A2ACallContext ..> A2ARequest : derives child

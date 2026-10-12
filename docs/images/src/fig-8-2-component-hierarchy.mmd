@@ -1,0 +1,9 @@
+flowchart LR
+    APP["App<br/>session and view state"]
+    APP --> LP["LandingPage"]
+    APP --> GA["GoogleAuthModal"]
+    APP --> SB["Sidebar"]
+    APP --> DV["DashboardView<br/>tabs: All, Finance, Fiscal, External, Markets, Real and Labour, States, DBIE<br/>studio: ScenarioSimulator, CrossSectorStudio, AnomalyFeed, EarlyWarningBrief<br/>charts, EvidenceDrawer, CommandPalette"]
+    APP --> CW["ChatWorkspace<br/>MarkdownMessage, ScrollableTable, MermaidDiagram,<br/>A2ATracePanel, DebateDag, ModelCardStrip"]
+    APP --> CL["CausalLabView<br/>KnowledgeGraphView, ShockwaveTab, TwinTab, RadarTab, MpcTab"]
+    APP --> AR["A2ARegistryView"]

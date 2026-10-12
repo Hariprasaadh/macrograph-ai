@@ -1,0 +1,11 @@
+flowchart TB
+    UI["DashboardView"] -->|"GET /api/v1/dashboard/overview"| RT["dashboard router"]
+    RT --> H["dashboard_helpers<br/>query_*_telemetry per sector"]
+    H --> D1[("Sector DuckDB stores")]
+    RT --> OD["open_data_helpers<br/>budget, states, employment, economy datasets"]
+    RT --> DB["dbie_sector_catalog<br/>RBI DBIE tables"]
+    D1 --> AG["aggregate payload with citations and freshness"]
+    OD --> AG
+    DB --> AG
+    AG --> UI
+    UI --> EVD["EvidenceDrawer shows source, table, period, calculation"]

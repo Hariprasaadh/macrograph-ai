@@ -1,0 +1,13 @@
+flowchart TB
+    TRG["Trigger: cron 08:15 IST (optional)<br/>or POST /brief/run"] --> EX{"Brief for today exists<br/>and not forced?"}
+    EX -->|"yes"| RET["return stored brief"]
+    EX -->|"no"| TEL["telemetry: monetary, fiscal, external, markets"]
+    TEL --> SC["anomaly scan"]
+    SC --> PIL["build four pillars and warnings"]
+    PIL --> NEWS["cached news, at most 4 Tavily queries, 6 h TTL"]
+    NEWS --> LLM{"LLM key and valid JSON?"}
+    LLM -->|"yes"| SYN["LLM headline, summary, watch list"]
+    LLM -->|"no"| DET["deterministic template"]
+    SYN --> SAVE[("daily_briefs in macro_store.duckdb")]
+    DET --> SAVE
+    SAVE --> API["GET /brief/today, /history"]

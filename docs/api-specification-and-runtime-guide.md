@@ -18,9 +18,9 @@ Macrograph-AI decomposes the Indian macroeconomy into **10 specialized sector ag
 │                    API GATEWAY (FastAPI / Uvicorn :8000)                │
 ├─────────────────────────────────────────────────────────────────────────┤
 │ • LangGraph Multi-Agent Orchestrator (A2A Dispatch & Synthesis)         │
-│ • NetworkX Causal Transmission Engine (Impulse-Response Traversal)      │
+│ • NetworkX Causal Graph + graph-attenuation scenario engine             │
 │ • Server-Sent Events (SSE) Streaming Channel (`/api/v1/chat/stream`)    │
-│ • Unified Dashboard Aggregator (`/api/v1/dashboard/overview`)           │
+│ • Dashboard aggregator, Causal Lab (`/api/v1/research/*`), Daily Brief  │
 └───────────────────┬─────────────────────────────────┬───────────────────┘
                     │                                 │
      A2A Protocol   │                  FastMCP Layer  │
@@ -29,11 +29,11 @@ Macrograph-AI decomposes the Indian macroeconomy into **10 specialized sector ag
 ┌─────────────────────────────────────┐   ┌───────────────────────────────┐
 │     A2A Multi-Agent Collaboration   │   │     FastMCP Tool Servers      │
 │ • Orchestrator Node                 │   │ • MoSPI e-Sankhyiki FastMCP   │
-│ • Finance & Banking Sector Agent    │   │   (https://mcp.mospi.gov.in/) │
+│ • 10 sector agents (cards in /a2a/registry) │   │   (https://mcp.mospi.gov.in/) │
 │ • Prices & Inflation Sector Agent   │   │ • RBI DBIE Live Pipelines     │
 │ • Real Sector Agent                 │   │ • Yahoo Finance MCP / yfinance│
 │ • Capital Markets Sector Agent      │   │ • Dedicated DuckDB Stores     │
-│ • Labour & Employment Agent         │   │ • Qdrant Vector DB (RAG)      │
+│ • Labour & Employment Agent         │   │ • Curated snapshots (cached)  │
 └─────────────────────────────────────┘   └───────────────────────────────┘
 ```
 
@@ -58,18 +58,29 @@ Macrograph-AI decomposes the Indian macroeconomy into **10 specialized sector ag
 ### Environment Configuration
 
 #### Backend Configuration (`backend/.env`)
-The backend loads configuration from [`backend/.env`](backend/.env):
+The backend loads configuration from `backend/.env` (template: `backend/.env.example`). With no key the platform uses deterministic offline synthesis:
 ```bash
 # Groq LLM API Configuration
-GROQ_API_KEY=gsk_your_groq_api_key_here
-FIN_FIS_KEY=gsk_your_groq_api_key_here
+# Six-key Groq convention (each key is shared by a sector pair); ORCH_KEY drives the orchestrator.
+AGR_REAL_KEY=gsk_...
+FIN_FIS_KEY=gsk_...
+CAP_MON_KEY=gsk_...
+ORCH_KEY=gsk_...
+PRIC_LAB_KEY=gsk_...
+SERV_EXT_KEY=gsk_...
+# Optional single key fallback: GROQ_API_KEY
+# Optional web search: TVLY_KEY_1, TVLY_KEY_2, TVLY_KEY_3
 
 # Model Selection
 MODEL_PROVIDER=groq
 FAST_MODEL=openai/gpt-oss-20b
 REASONING_MODEL=openai/gpt-oss-120b
 
-# Optional: Persistent Knowledge Graph (defaults to in-memory NetworkX)
+# Optional: A2A guards (A2A_MAX_DEPTH, A2A_MAX_HOPS, A2A_REQUEST_TIMEOUT, A2A_API_KEY, A2A_ALLOW_ANONYMOUS_REQUESTS)
+# Optional: daily brief scheduler at 08:15 Asia/Kolkata
+BRIEF_CRON_ENABLED=false
+
+# Optional: Persistent Knowledge Graph mirror (empty NEO4J_URI disables; install with uv pip install -e ".[neo4j]")
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
 NEO4J_PASSWORD=password
@@ -116,7 +127,7 @@ npm run dev
 
 - **Frontend Application:** [http://localhost:5173](http://localhost:5173)
 
-The Vite configuration proxies `/api`, `/finance-sector`, `/real-sector`, and `/a2a` directly to `http://127.0.0.1:8000`.
+The Vite configuration proxies `/api`, the sector mounts and `/a2a` directly to `http://127.0.0.1:8000`.
 
 ---
 
@@ -135,9 +146,10 @@ Returns the operational status of the platform and Knowledge Graph dimensions.
   "status": "healthy",
   "platform": "Macrograph AI",
   "version": "1.0.0",
-  "sectors_active": 8,
+  "sectors_active": 10,
   "knowledge_graph_nodes": 20,
-  "knowledge_graph_edges": 12
+  "knowledge_graph_edges": 12,
+  "neo4j_enabled": false
 }
 ```
 
@@ -305,7 +317,7 @@ Executes the full LangGraph multi-agent research workflow (Decompose → Paralle
 ```
 
 #### `POST /api/v1/simulate`
-Runs an econometrics impulse-response scenario shock using the VAR/IRF causal engine.
+Runs a scenario shock through the knowledge graph using the heuristic graph-attenuation engine (per-hop `0.55 x confidence`, scale 0.15, +/-25% band; not a VAR/IRF and not a statistical interval). Baselines are fixed defaults unless supplied.
 
 - **URL:** `http://127.0.0.1:8000/api/v1/simulate`
 - **Method:** `POST`
@@ -355,6 +367,34 @@ Evaluates all downstream reachable indicators affected by a shock to a source va
 
 ---
 
+### Causal Lab (Research) Endpoints
+
+All responses carry `labels` (`SIM`, `CACHED`, `heuristic`) so the UI can distinguish simulated, cached and measured values. Implemented in `backend/api/research.py` over `backend/core/research`.
+
+| Endpoint | Body / query | Returns |
+| :--- | :--- | :--- |
+| `GET /api/v1/research/kg/graph` | none | Nodes and typed edges (relation id, lag, sign, confidence, seeded p-value, mechanism, review note) |
+| `GET /api/v1/research/edges/audit` | none | Per-edge evidence class: `SEEDED` (typed into the ontology) or `EMPIRICAL` (Granger test on live series, needs at least 10 overlapping months) with `status` `UNTESTABLE_NO_DATA` / `UNTESTABLE_N` / `EMPIRICAL`; cached 300 s |
+| `POST /api/v1/research/trajectory` | `shock_variable`, `shock_magnitude`, `horizon_months` (1-60), `shape` (`step`/`decay`), `half_life_months` | Monthly series per downstream node, edge list with evidence class and notes (Shockwave) |
+| `POST /api/v1/research/compare` | `shock_variable`, `shock_magnitude` | Base vs shocked world, per-hop log-attenuation shares, weakest link, sign flips (Twin) |
+| `GET /api/v1/research/anomalies?inject=<id>:<z>` | optional SIM injection | Rolling-window (12) z-scores, threshold 2.0, each anomaly classed `PROPAGATING`, `ISOLATED` or `UNLINKED` against graph neighbours (Radar) |
+| `POST /api/v1/research/mpc/simulate` | `use_llm` (default true) | Six archetype seats with deterministic rule votes, optional LLM votes citing an evidence indicator, tally, dissent, `rule_baseline` and agreement flag. Always labelled `SIMULATED` |
+
+### Daily Brief Endpoints
+
+| Endpoint | Purpose |
+| :--- | :--- |
+| `GET /api/v1/brief/today` | Today's brief or the latest stored one, with `is_stale` and `served_from_cache` |
+| `POST /api/v1/brief/run` | Body `{"force": bool}`. Runs telemetry, anomaly scan, cached news (Tavily capped at 4 queries) and one LLM call, with a deterministic fallback. `409` if a run is in progress; debounced unless forced |
+| `GET /api/v1/brief/history?limit=7` | Stored briefs (DuckDB) |
+
+These endpoints trigger paid LLM or search calls and are unauthenticated; do not expose them publicly without rate limiting (see `docs/status-and-roadmap.md`).
+
+### Chat `done` event additions
+The orchestrator route appends to the final SSE `done` payload: `a2a` (conversation id, routed agents, routing method, errors, sources, flat trace), `consensus` (per-agent status, evidence cover, KG cover, heuristic quality score), `model_card` (evidence counts, KG relations with evidence class, scenario formula and constants, heuristic trust score, inflation regime note) and `live_baseline_ids`. `consensus` and `model_card` are built best-effort and omitted on error.
+
+---
+
 ### A2A Protocol Registry Endpoint
 
 #### `GET /a2a/registry`
@@ -387,13 +427,15 @@ curl -X GET "http://127.0.0.1:8000/finance-sector/credit-growth?lookback_months=
 
 ## 5. Testing & Verification
 
-Run the test suite from the repository root:
+Run from the repository root (`pyproject.toml` sets `pythonpath = ["backend", "backend/tests"]` and `asyncio_mode = "auto"`):
 
 ```powershell
-# Run backend pytest suite
-pytest backend/tests/ -v
+pytest                                   # default testpaths: backend/tests, finance_sector/tests, agriculture test file
+pytest backend/fiscal_sector/tests backend/monetary_sector/tests backend/external_sector/tests `
+       backend/services_sector/tests backend/labour_sector/tests backend/capital_market_sector/tests `
+       backend/real_sector/tests         # sector suites not in the default testpaths
 
-# Validate frontend production build
-cd frontend
-npm run build
+cd frontend; npm run build               # tsc && vite build (the only frontend check)
 ```
+
+Importing statsmodels is slow on a cold start (about 30 s); tests are slow, not hung.

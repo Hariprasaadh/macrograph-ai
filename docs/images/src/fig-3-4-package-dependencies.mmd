@@ -1,0 +1,19 @@
+flowchart TB
+    MAIN["main.py gateway"] --> API["api routers"]
+    MAIN --> SECT
+    API --> CORE
+    subgraph CORE["backend/core"]
+        ORCH["orchestrator"]
+        BOOT["registry_bootstrap.py<br/>the only module naming sectors"]
+        A2A["protocols/a2a"]
+        OTH["knowledge_graph, econometrics, research,<br/>briefing, verification, database, ingestion"]
+    end
+    subgraph SECT["backend/*_sector (10 packages)"]
+        S1["each sector"]
+    end
+    ORCH --> A2A
+    ORCH --> OTH
+    BOOT -->|"imports executors"| S1
+    S1 -->|"may import"| A2A
+    S1 -->|"may import"| OTH
+    S1 -. "never imports another sector: A2A messages only" .-> S1

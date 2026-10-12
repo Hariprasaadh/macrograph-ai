@@ -1,0 +1,10 @@
+flowchart TB
+    R["Incoming request<br/>conversation_id, depth, call_chain"] --> C1{"depth greater than<br/>A2A_MAX_DEPTH (5)?"}
+    C1 -->|"yes"| X1["reject: MAX_DEPTH_EXCEEDED"]
+    C1 -->|"no"| C2{"requests in conversation<br/>greater than A2A_MAX_HOPS (25)?"}
+    C2 -->|"yes"| X2["reject: MAX_HOPS_EXCEEDED"]
+    C2 -->|"no"| C3{"receiver already<br/>in call_chain?"}
+    C3 -->|"yes"| X3["reject: CIRCULAR_DELEGATION"]
+    C3 -->|"no"| C4{"same sender, parent, receiver,<br/>task and parameters seen?"}
+    C4 -->|"yes"| X4["reject: DUPLICATE_REQUEST"]
+    C4 -->|"no"| OKR["accept and record in trace"]

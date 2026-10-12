@@ -1,0 +1,13 @@
+flowchart TB
+    A1["real: gdp_growth, national_income"] --> M["CANONICAL_ID_MAP"]
+    A2["prices: cpi_general, cpi_headline_combined_yoy"] --> M
+    A3["monetary: repo_rate, policy_repo_rate"] --> M
+    A4["other sector-native names"] --> M
+    M --> C1["in.macro.real.gdp_growth"]
+    M --> C2["in.macro.prices.cpi_headline"]
+    M --> C3["in.macro.monetary.repo_rate"]
+    C1 --> G{"Node in knowledge graph?"}
+    C2 --> G
+    C3 --> G
+    G -->|"yes"| P["eligible for paths and live baselines"]
+    G -->|"no"| X["kept as observation, no path"]

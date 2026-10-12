@@ -1,0 +1,17 @@
+flowchart TB
+    UQ["User query"] --> OR["Orchestrator"]
+    OR --> AG["Sector agents over A2A and MCP"]
+    AG --> EV["Evidence store<br/>content-addressed observations"]
+    KG["Causal graph"] --> OR
+    subgraph NEW["Planned additions"]
+        LS["Long-series estimation of edge grades"]
+        DOC["Document evidence store<br/>RBI minutes, Economic Survey"]
+        VG["Verification gate<br/>typed claims, hedged causal claims"]
+        EVAL["Evaluation harness and benchmark"]
+    end
+    LS --> KG
+    DOC --> EV
+    EV --> VG
+    OR --> VG
+    VG --> REP["Verified report plus audit id"]
+    REP --> EVAL

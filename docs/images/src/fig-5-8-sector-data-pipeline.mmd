@@ -1,0 +1,9 @@
+flowchart TB
+    SRC["Official source<br/>MCP, REST, Excel, HTML"] --> FETCH["client.py<br/>httpx async plus Tenacity retry"]
+    FETCH --> PARSE["parsers.py<br/>normalise fields and units"]
+    PARSE --> VAL["Pydantic v2 models<br/>period and numeric validation"]
+    VAL --> STORE[("Sector DuckDB<br/>parameterised SQL")]
+    FETCH --> LOG[("fetch_log")]
+    STORE --> TOOL["FastMCP tool"]
+    TOOL --> CIT["Citation: source, table, period,<br/>freshness, retrieved_at"]
+    CIT --> AGENT["Agent node and A2A executor"]

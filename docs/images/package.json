@@ -1,0 +1,9 @@
+{
+  "name": "macrograph-report-figures",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Renders the Mermaid diagrams in this folder to PNG and SVG for the project report.",
+  "scripts": { "render": "node render-diagrams.mjs" },
+  "devDependencies": { "@mermaid-js/mermaid-cli": "11.4.2" }
+}

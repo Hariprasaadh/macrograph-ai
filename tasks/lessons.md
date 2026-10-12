@@ -7,3 +7,5 @@ Record corrections, edge cases, and architectural lessons to prevent repeated mi
 - `core.knowledge_graph.__init__` re-exports the singleton `neo4j_store`, which shadows the submodule of the same name; in tests use `importlib.import_module("core.knowledge_graph.neo4j_store")`. Same for `core.orchestrator.llm_client`.
 - Importing statsmodels takes ~30s cold on this machine; it is slow, not hung. Run Python via `.venv\Scripts\Activate.ps1`.
 - Tests that mock `llm_client.complete` hide import bugs inside the real client; keep a no-key regression test.
+- Documentation drifts fast: README/MEMORY claimed PydanticAI, Qdrant, SDK-based A2A, VAR/IRF and a live verification layer that the code does not have. When a feature is removed or never built, update `docs/status-and-roadmap.md` in the same change, and verify claims with grep before writing them.
+- `pytest` testpaths silently excluded most sector test suites; check `--collect-only` counts after adding a test directory.

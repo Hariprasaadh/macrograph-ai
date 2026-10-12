@@ -1,0 +1,21 @@
+stateDiagram-v2
+    [*] --> Landing
+    Landing --> AuthModal : Sign in
+    AuthModal --> Dashboard : login success
+    Landing --> Dashboard : stored session exists
+    Dashboard --> Chat : sidebar Workspace
+    Dashboard --> CausalLab : sidebar Graph
+    Dashboard --> A2ARegistry : sidebar Registry
+    Chat --> Dashboard
+    Chat --> CausalLab
+    Chat --> A2ARegistry
+    CausalLab --> Dashboard
+    CausalLab --> Chat
+    CausalLab --> A2ARegistry
+    A2ARegistry --> Dashboard
+    A2ARegistry --> Chat
+    A2ARegistry --> CausalLab
+    Dashboard --> Landing : Sign out
+    Chat --> Landing : Sign out
+    CausalLab --> Landing : Sign out
+    A2ARegistry --> Landing : Sign out

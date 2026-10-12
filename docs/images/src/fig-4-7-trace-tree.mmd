@@ -1,0 +1,7 @@
+flowchart TB
+    C["conversation conv-xxxx"]
+    C --> R1["req-1 orchestrator to external_sector<br/>sector_analysis, success, 412 ms"]
+    C --> R2["req-2 orchestrator to prices_sector<br/>sector_analysis, success, 530 ms"]
+    C --> R3["req-3 orchestrator to monetary_sector<br/>sector_analysis, partial, 610 ms"]
+    R1 --> R4["req-4 external_sector to monetary_sector<br/>repo_rate, success, 90 ms"]
+    R1 --> R5["req-5 external_sector to prices_sector<br/>cpi_headline, success, 85 ms"]

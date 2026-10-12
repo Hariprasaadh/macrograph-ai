@@ -11,6 +11,7 @@ dist/
 frontend/dist/
 build/
 .vite/
+docs\images\node_modules
 
 # Python cache & artifacts
 __pycache__/

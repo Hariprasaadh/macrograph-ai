@@ -1,0 +1,11 @@
+flowchart TB
+    C["Code change"] --> T["pytest: unit and integration"]
+    T --> R["Rule scan:<br/>400-line limit, parameterised SQL,<br/>future annotations, no bare except"]
+    R --> FB["npm run build<br/>tsc and vite build"]
+    FB --> DM["Demo run:<br/>demo_platform.py"]
+    DM --> D["Update docs and tasks/todo.md"]
+    D --> OK["Accept"]
+    T -->|"fail"| FIX["Fix root cause"]
+    R -->|"fail"| FIX
+    FB -->|"fail"| FIX
+    FIX --> C

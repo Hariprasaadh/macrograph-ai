@@ -1,0 +1,15 @@
+flowchart TB
+    OBS["collected_observations"] --> IDS["unique indicator ids, first-seen order"]
+    SH["scenario_shock"] --> ADD["add shocked variable"]
+    IDS --> KGF["keep ids that are KG nodes"]
+    ADD --> KGF
+    KGF --> PAIR["all ordered pairs u to v"]
+    PAIR --> PATH["shortest transmission path"]
+    PATH --> CP["causal_paths: hops, total lag, relations"]
+    KGF --> SIMQ{"scenario_shock present?"}
+    SIMQ -->|"yes"| LB["live baselines"] --> SIM["simulate_scenario"]
+    SIMQ -->|"no"| SKIP["no scenario"]
+    KGF --> MER["generate_mermaid_diagram(first 5 ids)"]
+    CP --> OUT["state update"]
+    SIM --> OUT
+    MER --> OUT

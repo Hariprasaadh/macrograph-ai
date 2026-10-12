@@ -1,0 +1,6 @@
+flowchart TB
+    L4["Layer 4: Manual system demo<br/>demo_platform.py, validate_sector_agents.py"]
+    L3["Layer 3: Integration tests<br/>A2A integration and streaming, orchestrator and KG, dashboard API"]
+    L2["Layer 2: Component tests<br/>A2A protocol and hardening, KG schema, networkx, Neo4j mock, causal engine"]
+    L1["Layer 1: Unit tests<br/>parsers, validators, claim verification, sector clients and databases"]
+    L4 --> L3 --> L2 --> L1

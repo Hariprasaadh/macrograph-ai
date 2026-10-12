@@ -1,0 +1,35 @@
+classDiagram
+    class MacroeconomicOntology {
+        +dict indicators
+        +list relationships
+        +validate()
+    }
+    class NetworkXGraphEngine {
+        +graph
+        +ontology
+        +has_node(id)
+        +get_shortest_transmission_path(src, dst)
+        +get_causal_neighborhood(id, depth)
+        +get_downstream_impacts(id)
+        +generate_mermaid_diagram(focus)
+    }
+    class CausalEconometricEngine {
+        +test_granger_causality(data, cause, effect, max_lag)
+        +simulate_scenario(name, shock_variable, magnitude, horizon, baselines)
+    }
+    class Neo4jKnowledgeGraphStore {
+        +enabled
+        +sync_ontology()
+        +query_transmission_path(src, dst)
+        +get_causal_neighborhood(id)
+        +close()
+    }
+    class CanonicalIndicator
+    class CausalRelationship
+    class ScenarioResult
+    MacroeconomicOntology "1" *-- "20" CanonicalIndicator
+    MacroeconomicOntology "1" *-- "12" CausalRelationship
+    NetworkXGraphEngine --> MacroeconomicOntology : builds from
+    CausalEconometricEngine --> NetworkXGraphEngine : traverses
+    CausalEconometricEngine ..> ScenarioResult : returns
+    Neo4jKnowledgeGraphStore ..> MacroeconomicOntology : mirrors

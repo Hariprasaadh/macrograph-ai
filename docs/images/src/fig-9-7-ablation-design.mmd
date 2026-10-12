@@ -1,0 +1,11 @@
+flowchart LR
+    FULL["Full system"] --> A1["Remove ownership constraint<br/>agents may fetch any indicator"]
+    FULL --> A2["Remove claim verification<br/>render LLM prose"]
+    FULL --> A3["Remove edge evidence grading<br/>treat all edges as equal"]
+    FULL --> A4["Remove knowledge graph<br/>no causal enrichment"]
+    FULL --> A5["Single agent with all tools"]
+    A1 --> M["Compare: unsupported claims,<br/>contradictions, coverage, latency"]
+    A2 --> M
+    A3 --> M
+    A4 --> M
+    A5 --> M

@@ -1,0 +1,6 @@
+flowchart TB
+    START(["START"]) --> N1["decompose<br/>writes routed_agents, routing_method,<br/>target_sectors, decomposed_tasks"]
+    N1 --> N2["parallel_a2a_execute<br/>writes collected_observations, agent_analyses,<br/>citations, a2a_sources, a2a_errors, a2a_trace"]
+    N2 --> N3["kg_causal_enrichment<br/>writes causal_paths, scenario_result,<br/>mermaid_diagram, live_baseline_ids"]
+    N3 --> N4["synthesis<br/>writes final_report, confidence_score, status"]
+    N4 --> END(["END"])

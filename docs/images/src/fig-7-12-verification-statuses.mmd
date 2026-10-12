@@ -1,0 +1,12 @@
+flowchart LR
+    C["Claim"] --> R{"Result"}
+    R --> V["verified<br/>recomputed value matches at displayed precision"]
+    R --> SA["source_attributed<br/>exact sentence in retrieved passage"]
+    R --> GM["general_mechanism<br/>reviewed educational template"]
+    R --> RJ["rejected<br/>wrong value, direction, scope, unit or altered quote"]
+    R --> IE["insufficient_evidence<br/>unknown id, conflicting values, unknown base,<br/>no registered analysis"]
+    V --> SHOW["rendered"]
+    SA --> SHOW
+    GM --> SHOW
+    RJ --> HIDE["withheld, kept in audit"]
+    IE --> HIDE

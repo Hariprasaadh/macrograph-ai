@@ -1,0 +1,12 @@
+flowchart LR
+    LAB["CausalLabView"] --> T1["Path<br/>GET /research/kg/graph and /kg/path"]
+    LAB --> T2["Shockwave<br/>POST /research/trajectory"]
+    LAB --> T3["Twin<br/>POST /research/compare"]
+    LAB --> T4["Radar<br/>GET /research/anomalies"]
+    LAB --> T5["MPC<br/>POST /research/mpc/simulate"]
+    T1 --> HK["useResearchApi hook"]
+    T2 --> HK
+    T3 --> HK
+    T4 --> HK
+    T5 --> HK
+    HK --> BADGE["badges: SIM, CACHED, heuristic, SEEDED, EMPIRICAL"]

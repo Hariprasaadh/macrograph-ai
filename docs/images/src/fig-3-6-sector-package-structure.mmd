@@ -1,0 +1,24 @@
+flowchart TB
+    subgraph PK["<sector>_sector package"]
+        MCP["mcp_server.py<br/>FastMCP tools"]
+        CLI["client.py and market_client.py<br/>HTTP and MCP clients with retries"]
+        PAR["parsers.py<br/>normalise source payloads"]
+        DB["database.py<br/>DuckDB schema, seeds, cache"]
+        MOD["models.py<br/>Pydantic v2 models"]
+        AGT["agent.py<br/>agent node and direct-query check"]
+        CARD["agent card and keywords<br/>registered in registry_bootstrap"]
+        EXE["agents/executor.py<br/>A2A executor"]
+        HND["a2a_handlers.py<br/>peer indicator tasks"]
+        APP["api/app.py<br/>HTTP sub-app"]
+    end
+    SRC["Official sources"] --> CLI
+    CLI --> PAR --> DB
+    DB --> MCP
+    CLI --> MCP
+    MCP --> AGT
+    MOD -.-> PAR
+    MOD -.-> AGT
+    AGT --> EXE
+    HND --> EXE
+    EXE --> CARD
+    AGT --> APP

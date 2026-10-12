@@ -1,0 +1,10 @@
+flowchart TB
+    Q["Query: crude oil, inflation, RBI policy"] --> DEC["decompose: prices_sector and monetary_sector"]
+    DEC --> P["prices_sector<br/>CPI and WPI via MoSPI MCP"]
+    DEC --> M["monetary_sector<br/>repo rate via RBI DBIE"]
+    P --> AGG["aggregate observations and sources"]
+    M --> AGG
+    AGG --> KG["KG paths: brent to WPI to CPI to repo"]
+    KG --> SIM["optional scenario: Brent +20"]
+    SIM --> SYN["synthesis: report with matrix, diagram, paths, scenario, sources"]
+    SYN --> OUT["Response with citations and A2A trace"]

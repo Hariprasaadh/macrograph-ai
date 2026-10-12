@@ -1,0 +1,13 @@
+flowchart LR
+    ST["Orchestrator state:<br/>trace, observations, sources, errors,<br/>causal_paths, scenario_result"] --> AS["agent_success<br/>success 1, partial 0.5, else 0"]
+    ST --> EC["evidence_cover<br/>usable observations / all"]
+    ST --> KC["kg_cover<br/>connected pairs / all pairs"]
+    ST --> MC["mean edge confidence"]
+    AS --> CQ["consensus_quality =<br/>agent_success x evidence_cover x (0.5 + 0.5 x kg_cover)"]
+    EC --> CQ
+    KC --> CQ
+    AS --> TS["trust score =<br/>0.4 evidence_cover + 0.3 mean edge confidence + 0.3 agent_success"]
+    EC --> TS
+    MC --> TS
+    CQ --> CO["consensus payload per agent"]
+    TS --> CARD["model card:<br/>evidence counts, KG relations with evidence class,<br/>model formula and constants, regime note"]

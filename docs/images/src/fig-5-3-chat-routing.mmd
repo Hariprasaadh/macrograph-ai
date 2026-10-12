@@ -1,0 +1,14 @@
+flowchart TB
+    M["Message and selected agent"] --> S{"Selected agent"}
+    S -->|"orchestrator"| P{"is_direct_prices_query?"}
+    P -->|"yes"| PR["prices_agent_node"]
+    P -->|"no"| G["Full orchestrator graph"]
+    S -->|"finance_sector"| F["finance_agent_node"]
+    S -->|"fiscal_sector"| FI["fiscal_agent_node"]
+    S -->|"prices_sector"| PR
+    S -->|"other sector id"| O["sector agent node via chat_config"]
+    F --> OUT["Stream steps, tokens and done event"]
+    FI --> OUT
+    PR --> OUT
+    O --> OUT
+    G --> OUT

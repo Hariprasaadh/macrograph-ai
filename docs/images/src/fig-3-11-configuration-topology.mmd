@@ -1,0 +1,19 @@
+flowchart LR
+    ENV["backend/.env"] --> PS["PlatformSettings<br/>core/config.py"]
+    PS --> K1["AGR_REAL_KEY<br/>agriculture and real"]
+    PS --> K2["FIN_FIS_KEY<br/>finance and fiscal"]
+    PS --> K3["CAP_MON_KEY<br/>capital markets and monetary"]
+    PS --> K4["ORCH_KEY<br/>orchestrator"]
+    PS --> K5["PRIC_LAB_KEY<br/>prices and labour"]
+    PS --> K6["SERV_EXT_KEY<br/>services and external"]
+    PS --> OT["FAST_MODEL, REASONING_MODEL,<br/>TVLY_KEY_1..3, A2A_*, NEO4J_*, CORS_ORIGINS"]
+    K1 --> SR["sector_reasoning.py<br/>and sector agents"]
+    K2 --> SR
+    K3 --> SR
+    K5 --> SR
+    K6 --> SR
+    K4 --> LC["orchestrator llm_client"]
+    SR --> Q{"Key resolved?"}
+    LC --> Q
+    Q -->|"yes"| LLM["Groq LLM call"]
+    Q -->|"no"| FB["Deterministic offline fallback"]

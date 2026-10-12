@@ -1,0 +1,24 @@
+sequenceDiagram
+    participant FI as fiscal_sector
+    participant P as peers.gather_peer_context
+    participant S as A2AServer
+    participant MO as monetary_sector
+    participant PR as prices_sector
+    participant FN as finance_sector
+    FI->>P: need repo_rate, cpi_headline, bank_credit_growth
+    par concurrent peer tasks
+        P->>S: repo_rate
+        S->>MO: handler
+        MO-->>S: IndicatorSignal and sources
+    and
+        P->>S: cpi_headline
+        S->>PR: handler
+        PR-->>S: IndicatorSignal and sources
+    and
+        P->>S: bank_credit_growth
+        S->>FN: handler
+        FN-->>S: IndicatorSignal and sources
+    end
+    S-->>P: three responses
+    P-->>FI: peer context with provenance, failures as unavailable lines
+    FI->>FI: reason over own data plus peer signals

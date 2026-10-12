@@ -1,0 +1,11 @@
+flowchart TB
+    IN["Inputs: shock variable, magnitude, baselines"] --> BASE["Shocked variable: baseline plus magnitude"]
+    IN --> DS["downstream impacts from graph"]
+    DS --> L["for each target"]
+    L --> P["path = shortest transmission path"]
+    P --> M["multiplier = product over hops of<br/>sign times 0.55 times confidence"]
+    M --> D["delta = magnitude times multiplier times 0.15"]
+    D --> SP["shocked peak = target baseline plus delta"]
+    SP --> CB["band = shocked peak plus or minus 25 percent of delta"]
+    CB --> OUT["forecasted_impacts[target]<br/>baseline, shocked_peak, delta, band, lag, confidence"]
+    P --> PRV["provenance_chain: relation ids used, first-seen order"]

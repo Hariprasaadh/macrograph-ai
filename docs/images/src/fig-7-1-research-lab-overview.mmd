@@ -1,0 +1,47 @@
+flowchart LR
+    subgraph IN["Inputs"]
+        KG["Knowledge graph"]
+        EN["Scenario engine"]
+        SE["Series provider<br/>dashboard helpers and macro_store"]
+        ST["Finished orchestrator state"]
+    end
+    subgraph MOD["core/research"]
+        TR["trajectory.py<br/>Shockwave"]
+        AT["attribution.py<br/>Twin"]
+        AN["anomaly.py<br/>Radar"]
+        MP["mpc.py<br/>MPC"]
+        ED["edge_audit.py<br/>Edge audit"]
+        CO["consensus.py"]
+        MC["model_card.py"]
+    end
+    subgraph API["Endpoints"]
+        E1["POST /research/trajectory"]
+        E2["POST /research/compare"]
+        E3["GET /research/anomalies"]
+        E4["POST /research/mpc/simulate"]
+        E5["GET /research/edges/audit"]
+        E6["chat done event: consensus, model_card"]
+    end
+    subgraph UI["UI"]
+        U1["Shockwave tab"]
+        U2["Twin tab"]
+        U3["Radar tab"]
+        U4["MPC tab"]
+        U5["Graph view with audit"]
+        U6["Debate DAG and model card strip"]
+    end
+    KG --> TR
+    EN --> TR
+    EN --> AT
+    SE --> AN
+    SE --> ED
+    KG --> AN
+    ST --> CO
+    ST --> MC
+    TR --> E1 --> U1
+    AT --> E2 --> U2
+    AN --> E3 --> U3
+    MP --> E4 --> U4
+    ED --> E5 --> U5
+    CO --> E6
+    MC --> E6 --> U6

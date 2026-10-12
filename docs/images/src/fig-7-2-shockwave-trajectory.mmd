@@ -1,0 +1,13 @@
+flowchart TB
+    IN["shock variable, magnitude, horizon, shape, half-life"] --> E{"Shock node in graph?"}
+    E -->|"no"| EMP["empty result with explanation note"]
+    E -->|"yes"| SIM["simulate_scenario"]
+    SIM --> NODES["for each downstream node:<br/>baseline, peak delta, lag, hops, cumulative confidence"]
+    NODES --> SH{"shape"}
+    SH -->|"step"| ST["value = baseline until lag, then baseline plus delta"]
+    SH -->|"decay"| DC["value = baseline plus delta times 0.5 power ((t minus lag) / half-life)"]
+    ST --> SER["monthly series t = 0 to horizon"]
+    DC --> SER
+    NODES --> ED["edges on path with evidence class and notes"]
+    SER --> OUT["trajectory payload labelled SIM and heuristic"]
+    ED --> OUT

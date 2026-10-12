@@ -1,0 +1,49 @@
+erDiagram
+    CANONICAL_INDICATOR ||--o{ CANONICAL_OBSERVATION : "is measured by"
+    CANONICAL_INDICATOR ||--o{ CAUSAL_RELATIONSHIP : "is source of"
+    CANONICAL_INDICATOR ||--o{ CAUSAL_RELATIONSHIP : "is target of"
+    CAUSAL_RELATIONSHIP }o--o{ SCENARIO_RESULT : "provenance chain"
+    CANONICAL_INDICATOR {
+        string indicator_id PK
+        string name
+        string sector
+        string subsector
+        string unit
+        string frequency
+        string source_authority
+        string source_url
+    }
+    CANONICAL_OBSERVATION {
+        string observation_id PK
+        string indicator_id FK
+        string observation_period
+        double value
+        string unit
+        string release_timestamp
+        string retrieved_timestamp
+        string revision_status
+        string data_status
+        double confidence
+        double z_score
+        double percentile_rank
+        string provenance_hash
+    }
+    CAUSAL_RELATIONSHIP {
+        string relation_id PK
+        string source_indicator_id FK
+        string target_indicator_id FK
+        string relation_type
+        int transmission_lag_months
+        string elasticity_sign
+        double empirical_p_value
+        double confidence_score
+        string mechanism_description
+    }
+    SCENARIO_RESULT {
+        string scenario_name
+        string shock_variable
+        double shock_magnitude
+        int horizon_periods
+        json forecasted_impacts
+        list provenance_chain
+    }

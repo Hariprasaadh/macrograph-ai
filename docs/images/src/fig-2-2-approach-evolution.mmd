@@ -1,0 +1,14 @@
+flowchart TB
+    S1["Stage 1<br/>Single LLM<br/>fluent but ungrounded"]
+    S2["Stage 2<br/>LLM with tools or RAG<br/>grounded in retrieved text"]
+    S3["Stage 3<br/>Multi-agent LLM<br/>specialised roles"]
+    S4["Stage 4<br/>Ownership-constrained agents<br/>A2A plus MCP plus provenance"]
+    S5["Stage 5<br/>Verified claims<br/>typed claims checked against evidence"]
+    S1 -->|"adds retrieval"| S2
+    S2 -->|"adds decomposition"| S3
+    S3 -->|"adds data ownership and typed protocol"| S4
+    S4 -->|"adds claim gate"| S5
+    W1["Weakness: invented numbers"] -.-> S1
+    W2["Weakness: no cross-domain reasoning"] -.-> S2
+    W3["Weakness: duplicated or conflicting data"] -.-> S3
+    W4["Weakness: unverified prose"] -.-> S4

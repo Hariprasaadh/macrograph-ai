@@ -1,0 +1,8 @@
+flowchart TB
+    EDGE["CausalRelationship<br/>relation_id: rel-8hex, deterministic uuid5<br/>source_indicator_id, target_indicator_id<br/>relation_type: 5-tier enum<br/>transmission_lag_months: integer, at least 0<br/>elasticity_sign: plus or minus<br/>empirical_p_value: optional, None only for THEORY<br/>confidence_score: 0 to 1<br/>mechanism_description: at least 10 characters<br/>documented_assumptions: list"]
+    EDGE --> V{"ontology.validate()"}
+    V --> R1["reject self-loop"]
+    V --> R2["reject unknown endpoint"]
+    V --> R3["reject duplicate relation id"]
+    V --> R4["reject bad id pattern or sign"]
+    V -->|"all pass"| OK["edge added to NetworkX graph"]

@@ -1,0 +1,14 @@
+flowchart TB
+    B["Brent crude<br/>78.50 to 98.50"]
+    W["WPI all<br/>2.45 to 4.02<br/>delta +1.57, lag 1M"]
+    C["CPI headline<br/>4.26 to 5.04<br/>delta +0.78, lag 3M"]
+    R["Repo rate<br/>6.25 to 6.66<br/>delta +0.41, lag 4M"]
+    K["Bank credit growth<br/>13.80 to 13.60<br/>delta -0.20, lag 7M"]
+    I["IIP growth<br/>4.20 to 4.11<br/>delta -0.09, lag 9M"]
+    G["GDP growth<br/>5.40 to 5.35<br/>delta -0.05, lag 10M"]
+    T["Trade balance<br/>-22.50 to -24.02<br/>delta -1.52, lag 1M"]
+    U["USD/INR<br/>86.40 to 85.68<br/>delta -0.72, lag 2M"]
+    N["Bank NIFTY<br/>51500 to 51499.81<br/>delta -0.19, lag 5M"]
+    B --> W --> C --> R --> K --> I --> G
+    B --> T --> U
+    R --> N

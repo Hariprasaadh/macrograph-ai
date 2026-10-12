@@ -1,0 +1,12 @@
+flowchart TB
+    S1["real_sector: MoSPI e-Sankhyiki MCP (NAS, IIP)"]
+    S2["agriculture_sector: MoSPI MCP, data.gov.in, weather MCP, Agmarknet"]
+    S3["prices_sector: MoSPI MCP (CPI, WPI), Yahoo Finance proxies, Tavily and web search"]
+    S4["monetary_sector: RBI DBIE, eco-policy-mcp, Tavily news"]
+    S5["finance_sector: RBI DBIE tables r539, r330, r531, r689, Financial Stability Report"]
+    S6["capital_market_sector: yfinance (NIFTY, VIX, USD/INR), SEBI and flow data"]
+    S7["fiscal_sector: Union Budget and CGA seeds, IMF WEO debt series, GST collections"]
+    S8["external_sector: RBI, IMF, market and Tavily clients"]
+    S9["labour_sector: MoSPI PLFS, EPFO"]
+    S10["services_sector: MoSPI, PMI releases"]
+    S1 ~~~ S2 ~~~ S3 ~~~ S4 ~~~ S5 ~~~ S6 ~~~ S7 ~~~ S8 ~~~ S9 ~~~ S10

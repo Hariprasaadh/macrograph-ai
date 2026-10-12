@@ -1,0 +1,16 @@
+flowchart TB
+    EV["A2A observations and sources"] --> EVD["content-addressed evidence"]
+    KG["Causal paths with edge evidence class"] --> EVD
+    EVD --> LLM["LLM proposes structured claims"]
+    LLM --> VER["verify_claims"]
+    VER --> CL{"claim kind"}
+    CL -->|"numeric"| VN["recompute and compare"]
+    CL -->|"causal"| VC["bind to KG edge,<br/>hedge by evidence class"]
+    CL -->|"qualitative"| VQ["exact quote or template"]
+    VN --> GATE["render verified text only"]
+    VC --> GATE
+    VQ --> GATE
+    GATE --> REP["final report plus audit id"]
+    VER --> WH["withheld claims reported with reason"]
+    classDef future stroke-dasharray: 5 5
+    class LLM,VER,GATE future

@@ -1,0 +1,47 @@
+classDiagram
+    class ClaimBase {
+        +str claim_id
+        extra fields forbidden
+    }
+    class ObservationClaim {
+        +str observation_id
+        +float proposed_value
+        +str output_unit
+    }
+    class RateChangeClaim {
+        +str earlier_observation_id
+        +str later_observation_id
+        +float proposed_value
+        +str operation
+    }
+    class PriceDirectionClaim {
+        +str observation_id
+        +str direction
+        +str comparison
+    }
+    class ReportedExplanationClaim {
+        +str passage_id
+        +str supporting_quote
+    }
+    class GeneralMechanismClaim {
+        +str mechanism_id
+    }
+    class StatisticalFindingClaim {
+        +str analysis_id
+    }
+    class VerificationResult {
+        +str claim_id
+        +str status
+        +str verification_method
+        +list evidence_ids
+        +list failed_checks
+        +float computed_value
+        +str rendered_text
+    }
+    ClaimBase <|-- ObservationClaim
+    ClaimBase <|-- RateChangeClaim
+    ClaimBase <|-- PriceDirectionClaim
+    ClaimBase <|-- ReportedExplanationClaim
+    ClaimBase <|-- GeneralMechanismClaim
+    ClaimBase <|-- StatisticalFindingClaim
+    ClaimBase ..> VerificationResult : verified into

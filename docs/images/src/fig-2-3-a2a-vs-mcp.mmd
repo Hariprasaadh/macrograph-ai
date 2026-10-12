@@ -1,0 +1,11 @@
+flowchart TB
+    subgraph AG1["Prices agent"]
+        R1["Reasoning"]
+    end
+    subgraph AG2["Monetary agent"]
+        R2["Reasoning"]
+    end
+    R1 <-->|"A2A: conclusions, indicator signals"| R2
+    R1 -->|"MCP tool call"| D1[("MoSPI e-Sankhyiki<br/>CPI and WPI")]
+    R2 -->|"MCP tool call"| D2[("RBI DBIE<br/>repo and liquidity")]
+    R1 -.->|"forbidden: raw fetch of peer data"| D2

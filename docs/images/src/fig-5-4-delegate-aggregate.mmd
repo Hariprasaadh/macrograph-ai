@@ -1,0 +1,16 @@
+flowchart TB
+    A["routed agent ids"] --> B["send_many: one sector_analysis per agent, concurrent"]
+    B --> D{"follow_ups present?"}
+    D -->|"yes, max 3 each"| E["one bounded follow-up round<br/>linked by parent_request_id"]
+    D -->|"no"| G
+    E --> G["aggregate(): validate each response"]
+    G --> I{"artifact type"}
+    I -->|"JSON"| J["extract observations and citations"]
+    I -->|"markdown"| K["report text plus artifact-level provenance"]
+    G --> M["failed responses appended to a2a_errors"]
+    J --> N["state update"]
+    K --> N
+    M --> N
+    N --> O{"any error?"}
+    O -->|"yes"| P["status a2a_partial"]
+    O -->|"no"| Q["status ok"]

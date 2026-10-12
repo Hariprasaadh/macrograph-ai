@@ -1,0 +1,13 @@
+flowchart TB
+    EV["Evidence pack: CPI, repo, GDP growth, USD/INR, credit growth"] --> RULE["Rule vote per persona: hawk, dove, centrist"]
+    EV --> LLMQ{"LLM key and use_llm?"}
+    LLMQ -->|"yes"| LLMV["LLM vote per persona (JSON: vote, reason, cited indicator)<br/>accepted only if vote valid and cited id is in the pack"]
+    LLMQ -->|"no"| SEATS
+    RULE --> SEATS["6 seats: Governor centrist, RBI deputy hawk, RBI officer centrist,<br/>external 1 hawk, external 2 dove, external 3 dove"]
+    LLMV --> SEATS
+    SEATS --> TALLY["tally HIKE, HOLD, CUT"]
+    TALLY --> TIE{"tie?"}
+    TIE -->|"yes"| GOV["Governor casting vote"]
+    TIE -->|"no"| MAJ["majority decision"]
+    GOV --> OUT["decision, dissent, rule_baseline, agreement flag<br/>label SIMULATED"]
+    MAJ --> OUT

@@ -2,6 +2,8 @@
 
 Macrograph-AI is a collaborative multi-agent system that decomposes India's macroeconomy into **10 specialized sector agents**. These agents communicate via the **A2A protocol** (agent-to-agent reasoning) and retrieve data via **FastMCP servers** (agent-to-data), collaborating to uncover causal transmission chains, synthesize cross-sector intelligence, and deliver **strictly cited** economic insights.
 
+> Status 2026-10-12: all ten sector agents exist and are registered. See [status-and-roadmap.md](status-and-roadmap.md) for maturity per component and [publication-plan.md](publication-plan.md) for the research direction. Sections below that describe aspirational behaviour are marked *(not implemented)*.
+
 ---
 
 ## Architecture Overview
@@ -46,12 +48,11 @@ Macrograph-AI is a collaborative multi-agent system that decomposes India's macr
 
 **A2A is strictly the reasoning and collaboration layer. No data is ever fetched through A2A.**
 
-Agents use A2A to:
-- **Request Analysis** — Ask a peer to evaluate a specific economic variable.
-- **Delegate Subtasks** — Transfer a domain-specific analytical burden to the expert agent.
-- **Share Findings** — Pass structured conclusions, indicator values, or causal chains to peers.
-- **Challenge & Validate** — Dispute another agent's conclusion and demand supporting evidence.
-- **Establish Causality** — Chain findings into cross-sector transmission logic (e.g., *"Agriculture confirms supply shock → Prices confirms food CPI spike → Monetary confirms policy unchanged"*).
+Implemented A2A tasks:
+- **`sector_analysis`** — the orchestrator delegates a query to a sector agent and receives observations, a report and source provenance.
+- **Peer indicator tasks** — `repo_rate`, `cpi_headline`, `bank_credit_growth`, allowed only along the seven declared edges in `core/protocols/a2a/dependencies.py` (finance, fiscal and external consuming from monetary, prices and finance).
+
+Designed but *not implemented*: free-form challenge/validate exchanges between agents and automatic contradiction resolution. Causal chains are produced by the knowledge-graph step of the orchestrator, not negotiated between agents.
 
 > **Strict Rule:** If the Prices Agent computes the inflation rate, the Monetary Agent must **not** recompute it. It must accept the figure via A2A and analyze the policy response only. This enforces **single-source-of-truth** across agents.
 
@@ -105,15 +106,15 @@ Every sector agent publishes an **Agent Card** that the Orchestrator reads to ro
 
 ## The Orchestrator
 
-The Orchestrator is the **central routing and synthesis engine**. It performs **no domain analysis itself** — its only job is coordination and citation-verified synthesis.
+The Orchestrator is the **central routing and synthesis engine**. It performs **no domain analysis itself** — its only job is coordination, causal enrichment and cited synthesis. It is a four-node LangGraph `StateGraph`: `decompose` -> `parallel_a2a_execute` -> `kg_causal_enrichment` -> `synthesis` (`backend/core/orchestrator/graph.py`).
 
 | Step | Responsibility |
 | :--- | :--- |
 | **1. Parse & Inspect** | Understand user query; read Agent Cards to identify relevant sector agents |
 | **2. Decompose & Delegate** | Split query into atomic subtasks and route them to the correct agents |
 | **3. Coordinate A2A** | Monitor and facilitate cross-agent communication; pass relevant findings between agents |
-| **4. Resolve Conflicts** | If agents provide contradictory findings, mediate using cited evidence |
-| **5. Synthesize & Cite** | Aggregate all agent reports into a final response. **Every claim must cite the Agent, MCP tool, and exact data point** |
+| **4. Enrich** | Map shortest causal transmission paths between observed indicators in the knowledge graph; optionally run a scenario shock whose baselines are overridden by live observations |
+| **5. Synthesize & Cite** | Aggregate reports into a final response with an indicator matrix (value, period, status, provenance hash), Mermaid diagram, path and scenario tables, source table and an explicit list of agents that could not respond. Conflict mediation between contradictory agents is *(not implemented)*: contradictions are not detected automatically |
 
 ---
 
@@ -171,27 +172,34 @@ To prevent duplicated logic and conflicting sources of truth across agents:
 
 To maintain clean modularity, deep domain specifications, exact database table keys, indicator schemas, and tool contracts are documented in each sector's package directory:
 
-- **Finance & Banking:** [backend/finance_sector/README.md](file:///c:/Users/Dell/Documents/GitHub/macrograph-ai/backend/finance_sector/README.md)
-- **Prices & Inflation:** [backend/prices_sector/README.md](file:///c:/Users/Dell/Documents/GitHub/macrograph-ai/backend/prices_sector/README.md)
-- **Capital Markets:** [backend/capital_market_sector/README.md](file:///c:/Users/Dell/Documents/GitHub/macrograph-ai/backend/capital_market_sector/README.md)
-- **Real Sector:** [backend/real_sector/README.md](file:///c:/Users/Dell/Documents/GitHub/macrograph-ai/backend/real_sector/README.md)
+Every sector package has its own README: `backend/<sector>/README.md` (agriculture, capital_market, external, finance, fiscal, labour, monetary, prices, real, services).
 
 ---
 
-## Knowledge Layer — RAG (Qdrant Vector DB)
+## Knowledge Layer
 
-Economic analysis requires qualitative context beyond raw data. Agents query **Qdrant** via MCP when they need to ground quantitative findings in official policy language.
+### Causal knowledge graph (implemented)
+`backend/core/knowledge_graph` holds 20 canonical indicators (`in.macro.<domain>.<name>`) and 12 directed transmission edges. Each edge has a stable `rel-<8 hex>` id (uuid5), lag in months, sign, confidence, p-value field, mechanism text, assumptions, and a type from a five-tier taxonomy: THEORY, STATISTICAL_ASSOCIATION, LAGGED_RELATIONSHIP, GRANGER_PREDICTIVE, STRUCTURAL_CAUSAL_MODEL. The in-memory NetworkX engine answers shortest-path and downstream-impact queries; an optional Neo4j mirror (`NEO4J_URI`) is synced at gateway startup.
 
-**Indexed Documents include:**
-- Union Budget speeches & fiscal statements
-- RBI MPC minutes & Governor press conferences
-- Economic Survey (Annual)
-- PLFS & NSSO survey reports
-- RBI Annual Reports
+Caveat: the edge statistics are curated priors typed into the ontology. The **Edge Evidence Audit** (`core/research/edge_audit.py`) re-tests each edge with Granger causality on live series and labels it `SEEDED` or `EMPIRICAL`; many edges remain untestable because the available histories are short. Treat edge confidence as a prior, not a measurement.
+
+### Scenario engine (implemented, heuristic)
+`core/econometrics/causal_engine.py` propagates a shock along the shortest path with a per-hop multiplier `sign x 0.55 x confidence`, a global scale of 0.15 and a +/-25% band. It is unit-blind and is not a VAR or impulse-response model. Outputs are labelled `SIM`.
+
+### Documentary RAG (not implemented)
+Earlier designs called for a Qdrant index of RBI MPC minutes, Budget speeches and the Economic Survey. No Qdrant code exists; every report states that documentary evidence is unavailable. Some sectors fetch web excerpts through Tavily/DDGS instead, which are attributed but not semantically verified.
+
+### Research lab and daily brief (implemented)
+Trajectory (Shockwave), Twin attribution, Anomaly Radar, simulated MPC, consensus and model card are pure functions over the graph, engine and orchestrator state (`core/research`). The daily brief combines telemetry, anomaly scan, cached news and one LLM call (`core/briefing`). See [api-specification-and-runtime-guide.md](api-specification-and-runtime-guide.md).
+
+### Claim verification (library only)
+`core/verification` verifies typed claims against content-addressed evidence snapshots. It is tested but is not currently called by any sector or by the orchestrator; see [claim-verification.md](claim-verification.md).
 
 ---
 
 ## Causal Reasoning Example — A2A + MCP in Action
+
+*Illustrative walk-through with example numbers; it describes the intended end state, and the live system reaches it only partially (peer exchange is limited to the declared edges above).*
 
 **User Query:** *"Why is food inflation rising, and how is the RBI responding?"*
 
@@ -221,13 +229,12 @@ Step 7: Orchestrator synthesizes all findings → Final cited report
 | Layer | Technology |
 | :--- | :--- |
 | **Orchestration** | LangGraph (stateful multi-agent graph) |
-| **Agent Framework** | A2A SDK (`a2a-sdk`) |
+| **Agent Protocol** | Native A2A layer in `core/protocols/a2a` (`a2a-sdk` is a declared but unused dependency) |
 | **MCP Servers** | FastMCP (`fastmcp`) — decorator-based tool server, one per sector, mounted on the FastAPI gateway |
 | **API Gateway** | FastAPI + Uvicorn |
 | **Data Validation** | Pydantic v2 |
-| **LLM Provider** | Groq (FAST: `llama-3.1-8b-instant`, REASONING: `llama-3.3-70b-versatile`) |
+| **LLM Provider** | Groq (defaults FAST `openai/gpt-oss-20b`, REASONING `openai/gpt-oss-120b`); OpenAI optional; deterministic offline fallback |
 | **Knowledge Graph** | NetworkX (in-memory), Neo4j (persistent) |
-| **Vector DB (RAG)** | Qdrant |
 | **Analytical DB** | DuckDB |
 | **Data Libraries** | Pandas, NumPy, Statsmodels, Scikit-learn, SciPy |
 | **Frontend** | React 18 + TypeScript + Vite + Tailwind CSS |
@@ -240,4 +247,4 @@ Step 7: Orchestrator synthesizes all findings → Final cited report
 2. **Zero Hallucination & No Hardcoding:** Never hallucinate, estimate, or hardcode random/mock values as factual data. If an agent lacks a data point or a fetch fails, it must explicitly return a structured unavailable state. Inventing numbers or providing unverified guesses is strictly prohibited.
 3. **Single Source of Truth:** Each economic indicator has exactly one owner agent. Peer agents must accept that agent's finding via A2A — they must never recompute or reinterpret another agent's primary domain data.
 4. **A2A is for Reasoning, MCP is for Data:** These layers must never be conflated. Data flows up through MCP; intelligence and causal conclusions flow sideways through A2A.
-5. **No Silent Failures:** If a data fetch fails, an MCP tool is unavailable, or an A2A peer is unresponsive, the agent must surface a structured error with the missing context rather than proceeding with incomplete or stale data.
+5. **No Silent Failures:** If a data fetch fails, an MCP tool is unavailable, or an A2A peer is unresponsive, the agent must surface a structured error with the missing context rather than proceeding with incomplete or stale data. (Known gap: the gateway silently skips optional sector mounts and some DuckDB initialisation on import errors; tracked in status-and-roadmap.md.)

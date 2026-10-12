@@ -1,0 +1,29 @@
+flowchart TB
+    subgraph FE["Presentation"]
+        T1["React 18, TypeScript, Vite, Tailwind"]
+        T2["GSAP motion, Mermaid, react-markdown"]
+    end
+    subgraph GW["Gateway"]
+        T3["FastAPI and Uvicorn"]
+        T4["Server-Sent Events"]
+    end
+    subgraph OR["Orchestration and protocols"]
+        T5["LangGraph StateGraph"]
+        T6["Native A2A layer, Pydantic v2"]
+        T7["FastMCP tool servers"]
+    end
+    subgraph AN["Analysis"]
+        T8["NetworkX, optional Neo4j"]
+        T9["statsmodels, pandas, NumPy"]
+    end
+    subgraph ST["Storage"]
+        T10["DuckDB"]
+        T11["SQLite audits"]
+    end
+    subgraph LL["LLM"]
+        T12["Groq: gpt-oss-20b and gpt-oss-120b"]
+        T13["Offline deterministic fallback"]
+    end
+    FE --> GW --> OR --> AN
+    OR --> ST
+    OR --> LL

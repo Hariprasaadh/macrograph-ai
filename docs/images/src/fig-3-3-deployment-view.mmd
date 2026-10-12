@@ -1,0 +1,18 @@
+flowchart LR
+    BR["Browser"] --> VP["Vite dev server :5173<br/>static app and proxy"]
+    VP --> APP
+    subgraph GWP["Uvicorn process :8000"]
+        direction TB
+        APP["FastAPI app"]
+        SUB["10 sector sub-apps"]
+        A2A["In-process A2A transport"]
+        LG["LangGraph orchestrator"]
+        KG["NetworkX graph in memory"]
+        APP --> SUB
+        APP --> LG --> A2A --> SUB
+        LG --> KG
+    end
+    GWP --> FS[("Local files<br/>macro_store.duckdb, sector DuckDB,<br/>claim_audits.sqlite3")]
+    GWP --> GQ["Groq API"]
+    GWP --> SRC["Official data sources"]
+    KG -.->|"startup sync if NEO4J_URI set"| N4[("Neo4j, optional")]

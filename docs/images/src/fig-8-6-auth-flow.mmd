@@ -1,0 +1,17 @@
+sequenceDiagram
+    actor U as User
+    participant L as LandingPage
+    participant M as GoogleAuthModal
+    participant G as Google Identity Services
+    participant A as App state
+    U->>L: click Sign in
+    L->>M: open modal
+    M->>G: request credential (client id)
+    G-->>M: signed JWT credential
+    M->>M: decode profile (name, email, picture)
+    M->>A: onLoginSuccess(profile)
+    A->>A: save profile in localStorage
+    A-->>U: Dashboard view
+    U->>A: Sign out
+    A->>A: remove profile
+    A-->>U: Landing view

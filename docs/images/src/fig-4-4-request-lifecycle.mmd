@@ -1,0 +1,14 @@
+stateDiagram-v2
+    [*] --> Created
+    Created --> Validated : guards pass
+    Created --> Failed : guard rejects
+    Validated --> Running : handler starts
+    Running --> Success : output with sources
+    Running --> Partial : output with errors
+    Running --> RetryWait : AGENT_TIMEOUT or TRANSPORT_ERROR
+    RetryWait --> Running : retries left
+    RetryWait --> Failed : retries exhausted
+    Running --> Failed : other error
+    Success --> [*]
+    Partial --> [*]
+    Failed --> [*]

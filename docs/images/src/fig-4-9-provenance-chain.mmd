@@ -1,0 +1,9 @@
+flowchart TB
+    S["Official source<br/>RBI DBIE table, MoSPI dataset"] --> T["MCP tool result<br/>value, unit, period, citation"]
+    T --> H["Handler output<br/>SourceProvenance list"]
+    H --> R["A2AResponse<br/>sources preserved unchanged"]
+    R --> AG["aggregate()<br/>observations, citations, a2a_sources"]
+    AG --> H2["Provenance hash<br/>SHA-256 of indicator, period, value, unit, status"]
+    AG --> REP["Report sections<br/>indicator matrix and source provenance table"]
+    H2 --> REP
+    REP --> UI["Evidence drawer in UI"]

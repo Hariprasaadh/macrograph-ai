@@ -1,0 +1,25 @@
+sequenceDiagram
+    actor U as Analyst
+    participant UI as Chat workspace
+    participant API as Chat router
+    participant G as Orchestrator
+    participant A as A2A and agents
+    participant K as KG and engine
+    participant L as LLM client
+    U->>UI: ask question
+    UI->>API: POST /chat/stream
+    API->>G: invoke graph
+    G->>G: decompose over Agent Cards
+    G->>A: delegate in parallel
+    A-->>API: trace updates
+    API-->>UI: SSE step events
+    A-->>G: observations and sources
+    G->>K: paths and scenario
+    K-->>G: paths, table, Mermaid
+    G->>L: grounded prompt
+    L-->>G: narrative or notice
+    G->>G: offline fallback if needed
+    G-->>API: final state
+    API-->>UI: SSE token events
+    API-->>UI: SSE done event
+    UI-->>U: report, tables, trace

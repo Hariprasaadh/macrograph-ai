@@ -1,0 +1,12 @@
+flowchart LR
+    GW["FastAPI gateway :8000"]
+    GW --> SYS["System<br/>GET /, GET /health"]
+    GW --> ORC["Orchestrator<br/>POST /api/v1/analyze"]
+    GW --> SIM["Econometrics<br/>POST /api/v1/simulate"]
+    GW --> KGE["Knowledge graph<br/>GET /api/v1/kg/path, /kg/impacts"]
+    GW --> CHT["Chat<br/>POST /api/v1/chat, /chat/stream"]
+    GW --> DSH["Dashboard<br/>GET /api/v1/dashboard/overview"]
+    GW --> RES["Research<br/>/api/v1/research/kg/graph, edges/audit,<br/>trajectory, compare, anomalies, mpc/simulate"]
+    GW --> BRF["Brief<br/>/api/v1/brief/today, run, history"]
+    GW --> A2A["A2A<br/>/a2a/registry, /a2a/v1/agents, capabilities,<br/>requests, traces"]
+    GW --> SUB["Sector sub-apps<br/>/real-sector, /finance-sector, /fiscal-sector,<br/>/capital-markets, /labour-sector, /agriculture-sector,<br/>/external-sector, /prices-sector, /monetary-sector, /services-sector"]

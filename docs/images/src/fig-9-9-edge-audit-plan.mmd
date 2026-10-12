@@ -1,0 +1,8 @@
+flowchart TB
+    S["Long monthly series from owner sectors"] --> ST["Stationarity: ADF or KPSS, difference as needed"]
+    ST --> GR["Pairwise Granger tests, lags 1 to 6"]
+    GR --> BH["Benjamini-Hochberg correction"]
+    BH --> LP["Sign and magnitude by local projection"]
+    LP --> STAB["Sub-sample stability test"]
+    STAB --> GRADE["Edge evidence grade and stored estimate with n, window, vintage"]
+    GRADE --> REP["Report: share of seeded edges supported"]
