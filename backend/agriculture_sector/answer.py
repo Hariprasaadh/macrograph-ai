@@ -188,6 +188,10 @@ def deterministic_audit(query_dims: dict[str, Any], candidate: dict[str, Any]) -
     unit = str(candidate.get("unit") or "").strip()
     if not unit or unit.casefold() in {"unit", "value", "number", "n/a", "na", "-"}:
         failures.append("unit_missing")
+    # Rule 5: an unresolved quantity discrepancy must not be presented as
+    # verified.
+    if candidate.get("verified") is False:
+        failures.append("unverified_quantity")
     if candidate.get("value_num") is None:
         failures.append("value_missing")
     if not candidate.get("source_url"):
@@ -273,9 +277,12 @@ def build_candidates(query_dims: dict[str, Any], structured: list[dict[str, Any]
             "season": str(record.get("season") or ""),
             "source_name": str(record.get("source_name") or ""),
             "source_url": str(record.get("source_url") or ""),
-            "estimate_status": record.get("estimate_status"),
+            "estimate_status": record.get("estimate_status") or record.get("estimate_type"),
             "published_date": record.get("published_date"),
             "scope_match": bool(record.get("scope_match", True)),
+            "verified": record.get("verified", True),
+            "reporting_period": record.get("reporting_period") or period,
+            "original_unit": record.get("original_unit") or str(record.get("unit") or ""),
             "allow_period_fallback": rank == 1,
             "rank": rank,
         })
@@ -309,6 +316,9 @@ def build_candidates(query_dims: dict[str, Any], structured: list[dict[str, Any]
             "published_date": str(row.get("published_date") or "")[:10] or None,
             "excerpt": str(row.get("excerpt") or "")[:600],
             "scope_match": scope_match,
+            "verified": row.get("verified", True),
+            "reporting_period": row.get("reporting_period") or period,
+            "original_unit": row.get("original_unit") or str(row.get("unit") or ""),
             "allow_period_fallback": scope_match,
             "rank": rank,
         })
@@ -322,9 +332,12 @@ def build_candidates(query_dims: dict[str, Any], structured: list[dict[str, Any]
     unique: list[dict[str, Any]] = []
     for candidate in sorted(candidates, key=lambda c: (
             c["rank"], not _is_official_source(c["source_url"]), c["period"])):
+        # Rule 3: estimate rounds stay distinct; identical values with
+        # different estimate labels are not deduplicated away.
         key = (candidate["value_text"], candidate["unit"].casefold(),
                candidate["period"], candidate["geography"].casefold(),
-               candidate["indicator"].casefold())
+               candidate["indicator"].casefold(),
+               str(candidate.get("estimate_status") or "").casefold())
         if key in seen:
             continue
         seen.add(key)
@@ -348,6 +361,20 @@ async def select_primary(query: str, query_dims: dict[str, Any],
     Internal audit trail is returned alongside for backend logic only.
     """
     candidates = build_candidates(query_dims, structured, published)
+    # "Latest" wins no matter what: audit the newest valid reporting period
+    # first so a stale older row can never shadow a newer observation.
+    try:
+        from .validation import is_latest_query as _is_latest_q
+    except Exception:  # noqa: BLE001
+        _is_latest_q = lambda q: False  # type: ignore
+    if _is_latest_q(query):
+        candidates = sorted(
+            candidates,
+            key=lambda c: (str(c.get("period") or ""),
+                           -int(c.get("rank", 3)),
+                           c.get("published_date") or ""),
+            reverse=True,
+        )
     trail: list[dict[str, Any]] = []
     fallback: dict[str, Any] | None = None
     audits = 0
@@ -445,8 +472,17 @@ def render_answer_card(query_dims: dict[str, Any],
         metric = indicator or "production"
     source = (f"[{primary.source_name}]({primary.source_url})"
               if primary.source_url else primary.source_name)
+    try:
+        from .validation import display_with_equivalent as _with_equiv
+    except Exception:  # noqa: BLE001
+        _with_equiv = lambda v, u: f"{v} {u}".strip()  # type: ignore
+    # Keep "**<value> <unit>**" verbatim so scale can never be misread,
+    # with the converted equivalent in plain text after it.
+    _equiv_text = _with_equiv(primary.value_text, primary.unit)
+    _suffix = _equiv_text[len(f"{primary.value_text} {primary.unit}".strip()):]
+    value_display = f"**{primary.value_text} {primary.unit}**{_suffix}"
     lines = [
-        f"**Metric:** {metric} — **{primary.value_text} {primary.unit}**",
+        f"**Metric:** {metric} — {value_display}",
         f"**Crop/commodity:** {primary.crop or metric}",
         f"**Geography:** {display_geography(primary)}",
         f"**Reporting period:** {primary.period}",
@@ -472,7 +508,13 @@ def template_answer(query_dims: dict[str, Any], primary: PrimaryObservation) -> 
         what = f"{primary.crop} {indicator}"
     else:
         what = indicator or "production"
-    value = f"**{primary.value_text} {primary.unit}**"
+    try:
+        from .validation import display_with_equivalent as _with_equiv2
+    except Exception:  # noqa: BLE001
+        _with_equiv2 = lambda v, u: f"{v} {u}".strip()  # type: ignore
+    _equiv2 = _with_equiv2(primary.value_text, primary.unit)
+    _suffix2 = _equiv2[len(f"{primary.value_text} {primary.unit}".strip()):]
+    value = f"**{primary.value_text} {primary.unit}**{_suffix2}"
     source = f"[{primary.source_name}]({primary.source_url})" if primary.source_url else primary.source_name
     estimate = (f" (reported as {primary.estimate_status})"
                 if primary.estimate_status and "final" not in primary.estimate_status.casefold() else "")
@@ -525,6 +567,10 @@ async def render_final_answer(query: str, query_dims: dict[str, Any],
     if scan_forbidden(draft):
         return template_answer(query_dims, primary)
     if primary.value_text not in draft or primary.period not in draft:
+        return template_answer(query_dims, primary)
+    # Unit must survive verbatim: an LLM rewrite of "102.97 lakh tonnes"
+    # as "102.97 million tonnes" is a 10x fabrication — reject it.
+    if primary.unit and primary.unit.casefold() not in draft.casefold():
         return template_answer(query_dims, primary)
     if primary.source_url and primary.source_url not in draft:
         return template_answer(query_dims, primary)

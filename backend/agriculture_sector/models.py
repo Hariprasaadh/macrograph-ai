@@ -80,6 +80,17 @@ class AgricultureObservation(Provenance):
     variety: str | None = None
     grade: str | None = None
     season: str | None = None
+    # Rule 1: preserve the source-reported value/unit/scale separately so a
+    # figure in lakh tonnes is never relabelled as million tonnes.
+    original_value: float | None = None
+    original_unit: str | None = None
+    scale: str | None = None
+    # Rules 2-3: actual source reporting period and estimate round.
+    reporting_period: str | None = None
+    estimate_type: str | None = None
+    canonical_value_tonnes: float | None = None
+    validated: bool | None = None
+    validation_note: str | None = None
 
     @field_validator("value", mode="before")
     @classmethod

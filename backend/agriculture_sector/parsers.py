@@ -68,10 +68,15 @@ def _period(value: Any) -> str:
 
 
 def _parse(payload: SourcePayload, tool: str, model: type, aliases: tuple[str, ...]) -> list:
+    # Agriculture unit/period/estimate validation lives in .validation so no
+    # other sector is affected.
+    from .validation import extract_estimate_type, normalize_unit, to_tonnes, validate_quantity
     output = []
     for original in _rows(payload.data):
         row = {**original}
         for canonical, upstream in payload.binding.fields.items():
+            # Rule 2: map through the declared source header/field only. Never
+            # infer a year or value from row position or adjacent columns.
             if upstream in original:
                 row[canonical] = original[upstream]
         provenance = {
@@ -95,8 +100,29 @@ def _parse(payload: SourcePayload, tool: str, model: type, aliases: tuple[str, .
                 raise ValueError("Numeric observation missing")
             fields["value"] = float(str(value).replace(",", ""))
             fields["indicator"] = row.get("indicator") or tool.removeprefix("get_").replace("_", " ")
+            # Rule 1: keep the source unit label verbatim; store scale and
+            # canonical conversions separately instead of relabelling.
             fields["unit"] = row.get("unit") or payload.binding.unit
             fields["frequency"] = row.get("frequency") or payload.binding.frequency
+            if "original_value" in model.model_fields:
+                fields["original_value"] = fields["value"]
+                fields["original_unit"] = fields["unit"]
+                scale_label, _ = normalize_unit(str(fields["unit"] or ""))
+                fields["scale"] = scale_label or None
+                fields["reporting_period"] = fields["period"]
+                estimate_text = " ".join(str(row.get(key) or "") for key in (
+                    "estimate_type", "estimate", "source_note", "indicator", "status"))
+                fields["estimate_type"] = extract_estimate_type(estimate_text) or None
+                try:
+                    fields["canonical_value_tonnes"] = to_tonnes(fields["value"], str(fields["unit"] or ""))
+                except (TypeError, ValueError):
+                    fields["canonical_value_tonnes"] = None
+                ok, note = validate_quantity(
+                    fields["value"], str(fields["unit"] or ""),
+                    str(row.get("crop") or row.get("commodity") or ""),
+                    " ".join(str(row.get(key) or "") for key in ("state", "district")))
+                fields["validated"] = ok
+                fields["validation_note"] = note
         else:
             fields.setdefault("indicator", tool.removeprefix("get_").replace("_", " "))
             if "indicator" not in model.model_fields:
@@ -246,7 +272,7 @@ def series_changes(records: list[AgricultureObservation]) -> list[dict]:
     """DuckDB lag per exact series; label interval change, never assume YoY/MoM."""
     if len(records) < 2:
         return []
-    keys = ("kind", "crop", "commodity", "state", "district", "market", "variety", "grade", "season", "unit", "frequency", "dataset", "source")
+    keys = ("kind", "crop", "commodity", "state", "district", "market", "variety", "grade", "season", "unit", "frequency", "dataset", "source", "estimate_type")
     rows = [(i, json.dumps([getattr(r, k, None) for k in keys]), r.period, r.value)
             for i, r in enumerate(records)]
     with duckdb.connect(":memory:") as con:

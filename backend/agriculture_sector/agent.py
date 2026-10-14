@@ -53,6 +53,8 @@ _CROP_TERMS = (
     "wheat", "rice", "paddy", "onion", "tomato", "potato", "cotton", "maize",
     "sugarcane", "soybean", "pulses", "gram", "mustard", "garlic", "ginger",
     "chilli", "turmeric", "ragi", "millet", "jowar", "bajra",
+    "groundnut", "sunflower", "sesamum", "castor", "linseed", "safflower",
+    "niger", "barley", "tobacco",
 )
 
 _WEATHER_TERMS = (
@@ -227,7 +229,8 @@ def select_agriculture_tools(query: str) -> set[str]:
     if any(word in q for word in (
         "wheat", "rice", "paddy", "onion", "tomato", "potato", "cotton", "maize",
         "sugarcane", "soybean", "pulses", "gram", "mustard", "garlic", "ginger",
-        "chilli", "turmeric")) and any(word in q for word in ("production", "output")):
+        "chilli", "turmeric", "groundnut", "sunflower", "sesamum", "castor",
+        "barley")) and any(word in q for word in ("production", "output")):
         selected.add("get_crop_production")
     if any(word in q for word in ("price", "mandi")) and "msp" not in q and any(word in q for word in ("chang", "trend", "increas", "ris", "last")):
         selected.add("get_mandi_price_trend")
@@ -425,9 +428,11 @@ def _comparable_structured_changes(
     """
     groups: dict[tuple[Any, ...], list[Any]] = {}
     for record in records:
+        # Rule 3/6: never merge different estimate rounds; trends compare
+        # only identical estimate types.
         key = tuple(getattr(record, field, None) for field in (
             "crop", "commodity", "state", "district", "season", "unit",
-            "source", "dataset", "indicator"))
+            "source", "dataset", "indicator", "estimate_type"))
         groups.setdefault(key, []).append(record)
     changes: list[dict[str, Any]] = []
     for key_records in groups.values():
@@ -460,7 +465,7 @@ def _window_change(result: AgricultureResult, latest: AgricultureObservation) ->
     if result.tool not in {"get_production_trend", "get_mandi_price_trend", "get_msp_history"}:
         return None
     keys = ("kind", "crop", "commodity", "state", "district", "market", "variety", "grade",
-            "season", "unit", "frequency", "dataset", "source")
+            "season", "unit", "frequency", "dataset", "source", "estimate_type")
     compatible = [record for record in result.records if isinstance(record, AgricultureObservation)
                   and all(getattr(record, key, None) == getattr(latest, key, None) for key in keys)]
     if len(compatible) < 2:
@@ -497,7 +502,8 @@ def _production_tavily_rows(query: str, web_results: list[dict[str, str]]) -> li
     year_pattern = re.compile(r"\b((?:19|20)\d{2}(?:[-/](?:\d{2}|20\d{2}))?)\b")
     crop_pattern = re.compile(
         r"\b(rice|paddy|wheat|ragi|millet|jowar|bajra|maize|corn|sugarcane|cotton|"
-        r"soybean|mustard|onion|tomato|potato|gram|chickpea|lentil|turmeric|chilli|garlic)\b",
+        r"soybean|mustard|onion|tomato|potato|gram|chickpea|lentil|turmeric|chilli|garlic|"
+        r"groundnut|sunflower|sesamum|castor|linseed|safflower|niger|barley|tobacco)\b",
         re.IGNORECASE,
     )
 
@@ -545,31 +551,39 @@ def _production_tavily_rows(query: str, web_results: list[dict[str, str]]) -> li
                                  else district_match[1].strip(" .,;") if district_match else "Not stated")
             is_official = any(domain in url.casefold() for domain in (
                 "pib.gov.in", "agricoop.nic.in", "desagri.gov.in", "data.gov.in", "mospi.gov.in"))
-            years = list(year_pattern.finditer(sentence))
-            production_years = [year for year in years if "-" in year.group(1) or "/" in year.group(1)] or years
             crop_mentions = list(crop_pattern.finditer(sentence))
             quantity_matches = list(quantity.finditer(sentence))
-            year_assignments: dict[int, list[re.Match[str]]] = {}
-            for year_match in production_years:
-                nearest_index = min(
-                    range(len(quantity_matches)),
-                    key=lambda index: max(quantity_matches[index].start() - year_match.end(),
-                                          year_match.start() - quantity_matches[index].end(), 0),
-                ) if quantity_matches else None
-                if nearest_index is not None:
-                    year_assignments.setdefault(nearest_index, []).append(year_match)
+            # Rule 2: associate a quantity with a reporting period only when
+            # both appear in the same explicit clause. Never guess by nearest
+            # distance across clauses or assume adjacent columns map to
+            # adjacent years without a checked header token.
+            clauses = re.split(
+                r";|\bas\s+compared\s+to\b|\bcompared\s+to\b|\bversus\b|\bagainst\b",
+                sentence)
+            clause_spans: list[tuple[int, int]] = []
+            cursor = 0
+            for clause in clauses:
+                start = sentence.find(clause, cursor)
+                if start < 0:
+                    start = cursor
+                end = start + len(clause)
+                clause_spans.append((start, end))
+                cursor = end
             for match_index, match in enumerate(quantity_matches):
                 if crop_mentions:
                     nearest_crop = min(crop_mentions, key=lambda crop_match: min(
                         abs(match.start() - crop_match.end()), abs(crop_match.start() - match.end())))
                     if nearest_crop.group(1).casefold() not in crop_terms:
                         continue
-                assigned_years = year_assignments.get(match_index, [])
-                if not assigned_years:
+                span = next((s for s in clause_spans if s[0] <= match.start() < s[1]),
+                            (0, len(sentence)))
+                clause_text = sentence[span[0]:span[1]]
+                clause_years = [m.group(1) for m in year_pattern.finditer(clause_text)]
+                clause_periods = [y for y in clause_years if "-" in y or "/" in y] or clause_years
+                # Ambiguous or headerless clauses are skipped rather than guessed.
+                if len(set(clause_periods)) != 1:
                     continue
-                closest_year = min(assigned_years, key=lambda year: min(
-                    abs(match.start() - year.end()), abs(year.start() - match.end())))
-                row_period = closest_year.group(1)
+                row_period = clause_periods[0]
                 row_year = int(row_period[:4])
                 period_end = row_year
                 if len(row_period) > 4:
@@ -600,6 +614,8 @@ def _production_tavily_rows(query: str, web_results: list[dict[str, str]]) -> li
                         geography_label = "India-wide context; not specific to the requested area"
                     else:
                         geography_label = "Broader source context; not specific to the requested area"
+                # Rule 1: preserve the source unit verbatim; never relabel
+                # lakh tonnes as million tonnes. Scale is stored separately.
                 unit = re.sub(r"\s+", " ", match.group(2)).strip()
                 indicator = ("Organic cotton production" if scope.crop and scope.crop.casefold() == "cotton"
                              and re.search(r"\borganic\b", sentence[max(0, match.start() - 80):match.start()],
@@ -608,20 +624,35 @@ def _production_tavily_rows(query: str, web_results: list[dict[str, str]]) -> li
                 dedupe_key = (url, row_period, match.group(1), unit, geography_label, indicator)
                 if dedupe_key in seen:
                     continue
-                estimate_type = _estimate_type_label(f"{title}. {sentence}")
+                from .validation import extract_estimate_type as _extract_estimate, validate_quantity
+                estimate_type = _extract_estimate(f"{title}. {sentence}") or _estimate_type_label(
+                    f"{title}. {sentence}")
+                try:
+                    numeric_value = float(match.group(1).replace(",", ""))
+                except ValueError:
+                    numeric_value = None
+                # Rule 5: quantity check before the row can be presented as
+                # verified. Unresolved discrepancies stay labelled unverified.
+                verified, validation_note = validate_quantity(
+                    numeric_value, unit, scope.crop or "", geography_label)
                 label = ("Published official forecast" if is_official and re.search(
                     r"\bforecast\b|\bforecasted\b", sentence_lower) else
                     "Published forecast" if re.search(r"\bforecast\b|\bforecasted\b", sentence_lower) else
                     "Published official estimate" if is_official else "Published source claim")
-                if estimate_type:
+                if not verified:
+                    label = f"Unverified source claim ({validation_note})"
+                elif estimate_type:
                     label = f"{label} ({estimate_type})"
                 rows.append({"title": title or url, "url": url, "published_date": item.get("published_date", ""),
                              "year": row_period, "indicator": indicator,
                              "year_start": str(row_year), "value": match.group(1), "unit": unit,
+                             "original_value": match.group(1), "original_unit": unit,
+                             "reporting_period": row_period,
                              "excerpt": sentence.strip(), "district": reported_district,
                              "season": season_match[1].title() if season_match else "Not stated",
                              "geography": geography_label, "scope_match": yearless_scope_match,
-                             "label": label, "estimate_type": estimate_type})
+                             "label": label, "estimate_type": estimate_type,
+                             "verified": verified, "validation_note": validation_note})
                 seen.add(dedupe_key)
     return rows
 
@@ -709,6 +740,15 @@ def _production_report(query: str, results: list[AgricultureResult],
         lines.append(f"**Answer:** The structured records available for {crop} in {geography} are historical "
                      f"(latest returned year: {max(structured_years)}). No newer source-backed figure was found "
                      "in the retrieved publication excerpts.")
+    elif latest_query and publication_is_newer:
+        # Newest valid reporting period wins even when structured rows are
+        # in-window but older; name its estimate round (e.g. 3rd advance).
+        newest = max(published, key=lambda r: (int(r.get("year_start", "0")),
+                                               str(r.get("published_date") or "")))
+        est = f" ({newest['estimate_type']})" if newest.get("estimate_type") else ""
+        lines.append(f"**Answer:** The newest relevant published {crop} production figure found for {geography} "
+                     f"is {newest['value']} {newest['unit']}{est} for {newest['year']}; "
+                     f"older structured observations are shown as historical context.")
     elif has_primary:
         lines.append(f"**Answer:** Available {crop} production observations for {geography} are for {period}.")
     elif broader_published or out_scope_structured:
@@ -772,12 +812,17 @@ def _production_report(query: str, results: list[AgricultureResult],
             source_title += f" (published {row['published_date'][:10]})"
         if row.get("estimate_type"):
             source_title += f" [{row['estimate_type']}]"
+        try:
+            from .validation import display_with_equivalent as _equiv
+            figure = _equiv(str(row['value']), str(row['unit']))
+        except Exception:  # noqa: BLE001
+            figure = f"{row['value']} {row['unit']}"
         return (f"| {_table_cell(crop)} / {_table_cell(row.get('indicator', 'Crop production'))} "
                 f"({_table_cell(row['label'])}) | "
                 f"{_table_cell(row.get('geography', geography))} | "
                 f"{_table_cell(row.get('district', 'Not stated'))} | {_table_cell(row['year'])} | "
                 f"{_table_cell(row.get('season', 'Not stated'))} | "
-                f"{_table_cell(row['value'])} {_table_cell(row['unit'])} | "
+                f"{_table_cell(figure)} | "
                 f"[{_table_cell(source_title)}]({row['url']}) [{citation_id}] |")
 
     if published:
@@ -965,6 +1010,15 @@ def _structured_selection_rows(records: list[Any]) -> list[dict[str, Any]]:
             "source_name": getattr(record, "source", None) or "",
             "source_url": getattr(record, "source_url", None) or "",
             "scope_match": True,
+            # Rules 1-3/5: carry preserved scale, estimate round and
+            # verification through to primary-answer selection.
+            "estimate_status": getattr(record, "estimate_type", None),
+            "estimate_type": getattr(record, "estimate_type", None),
+            "reporting_period": getattr(record, "reporting_period", None)
+            or getattr(record, "period", None) or "",
+            "original_unit": getattr(record, "original_unit", None)
+            or getattr(record, "unit", None),
+            "verified": getattr(record, "validated", True),
         })
     return rows
 
@@ -1372,16 +1426,17 @@ def _comparable_production_trend(structured: list[dict[str, Any]],
     """Return true only when the evidence contains multiple periods for the same series."""
     structured_groups: dict[tuple[Any, ...], set[str]] = {}
     for row in structured:
+        # Rule 6: trends compare only identical estimate rounds as well.
         key = tuple(row.get(field) for field in (
             "indicator", "kind", "crop", "commodity", "state", "district", "season", "unit",
-            "source", "source_category", "dataset"))
+            "source", "source_category", "dataset", "estimate_type", "estimate_status"))
         structured_groups.setdefault(key, set()).add(str(row.get("period", "")))
     if any(len(periods - {""}) > 1 for periods in structured_groups.values()):
         return True
     publication_groups: dict[tuple[Any, ...], set[str]] = {}
     for row in published:
         key = (row.get("indicator"), row.get("geography"), row.get("district"), row.get("season"),
-               row.get("unit"), row.get("url"))
+               row.get("unit"), row.get("url"), row.get("estimate_type"))
         publication_groups.setdefault(key, set()).add(str(row.get("year_start") or row.get("year") or ""))
     return any(len(periods - {""}) > 1 for periods in publication_groups.values())
 
@@ -1610,8 +1665,14 @@ async def agriculture_agent_node(state: dict[str, Any]) -> dict[str, Any]:
     ]
     production_query = any(result.tool in production_tools for result in results)
     if production_query:
-        # Tavily is a fallback only after the official sources return no in-scope observations.
-        needs_tavily = not official_production_records
+        # "Latest" must win no matter what: even when stale structured rows
+        # exist, always fan out to publications so the newest reporting
+        # period (e.g. 2025-26 3rd advance estimate) can supersede them.
+        from .validation import is_latest_query as _is_latest_q
+        _latest_intent = _is_latest_q(query)
+        # Tavily is a fallback only after the official sources return no in-scope observations,
+        # except latest-intent queries which always check publications for a newer period.
+        needs_tavily = (not official_production_records) or _latest_intent
     else:
         needs_tavily = bool(names and (not raw_records or stale or incomplete or
                                        ("get_crop_list" in names and scope.state)))

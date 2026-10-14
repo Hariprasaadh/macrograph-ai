@@ -90,6 +90,40 @@ async def _retrieve(operation: str, query: AgricultureQuery, tool: str) -> Agric
                 records = records[-query.days:]
             if not records:
                 raise SourceUnavailable("No matching observations returned", "missing_data")
+            # Rule 4: for "latest" production requests (no explicit period),
+            # do not stop at the first API's newest record. Check the other
+            # configured sources and keep the newest valid reporting period.
+            latest_intent = (operation == "crop_production" and query.period is None
+                             and query.start_year is None and query.end_year is None)
+            if latest_intent:
+                best = (records, source)
+                best_year = max((getattr(r, "period", "")[:4] for r in records
+                                 if str(getattr(r, "period", ""))[:4].isdigit()), default="")
+                for other in SOURCE_ROUTING[operation]:
+                    if other == source:
+                        continue
+                    try:
+                        if other == "data_gov":
+                            binding_key = tool if tool in {"get_production_trend", "get_state_crop_production",
+                                                           "get_mandi_price_trend", "compare_mandi_prices"} else operation
+                            other_payload = await fetch_ogd(binding_key, query)
+                        else:
+                            other_client = CLIENTS[other]
+                            other_key = tool if tool in other_client.configuration().operations else operation
+                            other_payload = await other_client.fetch(other_key, query)
+                        other_parsed = PARSERS[operation](other_payload, tool)
+                        other_records = filter_records(other_parsed, query)
+                        if not other_records:
+                            continue
+                        other_year = max((getattr(r, "period", "")[:4] for r in other_records
+                                          if str(getattr(r, "period", ""))[:4].isdigit()), default="")
+                        errors.extend(SourceError(source=other, code="missing_data", message=message)
+                                      for message in other_payload.warnings)
+                        if other_year > best_year:
+                            best, best_year = (other_records, other)
+                    except Exception:
+                        continue
+                records = best[0]
             return AgricultureResult(tool=tool, status="partial" if errors else "available",
                                      records=records, errors=errors)
         except TimeoutError:
