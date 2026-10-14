@@ -13,6 +13,20 @@ import httpx
 
 from core.protocols.mcp.client import MCPClientWrapper
 from core.config import settings
+from .answer import (
+    PrimaryObservation,
+    build_candidates,
+    excerpt_to_published_row,
+    metric_mismatch,
+    pick_best_excerpt,
+    refined_query,
+    render_answer_card,
+    render_final_answer,
+    sanitize_user_text,
+    scan_forbidden,
+    score_excerpt,
+    select_primary,
+)
 from .mcp_server import mcp_server
 from .models import AgricultureFinding, AgricultureObservation, AgricultureQuery, AgricultureResult, SourceError, WeatherObservation
 
@@ -371,6 +385,76 @@ def _table_cell(value: Any) -> str:
     return re.sub(r"\s+", " ", str(value)).replace("|", "\\|").strip()
 
 
+_ESTIMATE_TYPE_PATTERN = re.compile(
+    r"\b(first|second|third|fourth|final|provisional|revised)\s+(advance\s+)?estimates?\b",
+    re.IGNORECASE,
+)
+
+
+def _estimate_type_label(sentence: str) -> str:
+    """Return a generic estimate-revision label (e.g. 'Third Advance Estimate')."""
+    match = _ESTIMATE_TYPE_PATTERN.search(sentence or "")
+    if not match:
+        return ""
+    return " ".join(word.capitalize() for word in match.group(0).split())
+
+
+def _structured_in_scope(record: Any, scope: Any) -> bool:
+    """True when a structured record matches the requested district/state."""
+    district = getattr(record, "district", None)
+    state = getattr(record, "state", None)
+    if getattr(scope, "district", None):
+        if district and district.casefold() == scope.district.casefold():
+            return True
+        # A district query implies its state; keep same-state records as in-scope.
+        if getattr(scope, "state", None) and state and state.casefold() == scope.state.casefold():
+            return True
+        return False
+    if getattr(scope, "state", None):
+        return bool(state and state.casefold() == scope.state.casefold())
+    return True
+
+
+def _comparable_structured_changes(
+    records: list[Any],
+) -> list[dict[str, Any]]:
+    """Year-on-year changes per comparable series (geo + indicator + units).
+
+    Groups by crop/commodity, state, district, season, unit, source and dataset
+    so percentage changes are only computed on like-for-like observations.
+    """
+    groups: dict[tuple[Any, ...], list[Any]] = {}
+    for record in records:
+        key = tuple(getattr(record, field, None) for field in (
+            "crop", "commodity", "state", "district", "season", "unit",
+            "source", "dataset", "indicator"))
+        groups.setdefault(key, []).append(record)
+    changes: list[dict[str, Any]] = []
+    for key_records in groups.values():
+        ordered = sorted({record.period: record for record in key_records}.values(),
+                         key=lambda record: record.period)
+        if len(ordered) < 2:
+            continue
+        first, last = ordered[0], ordered[-1]
+        if first.period == last.period or not first.value:
+            continue
+        delta = last.value - first.value
+        changes.append({
+            "crop": getattr(last, "crop", None),
+            "state": getattr(last, "state", None),
+            "district": getattr(last, "district", None),
+            "season": getattr(last, "season", None),
+            "unit": last.unit,
+            "from_period": first.period,
+            "period": last.period,
+            "from_value": first.value,
+            "value": last.value,
+            "delta": delta,
+            "percentage_change": delta / first.value * 100,
+        })
+    return changes
+
+
 def _window_change(result: AgricultureResult, latest: AgricultureObservation) -> dict[str, Any] | None:
     """Compare the first and last compatible records for a trend headline."""
     if result.tool not in {"get_production_trend", "get_mandi_price_trend", "get_msp_history"}:
@@ -524,17 +608,20 @@ def _production_tavily_rows(query: str, web_results: list[dict[str, str]]) -> li
                 dedupe_key = (url, row_period, match.group(1), unit, geography_label, indicator)
                 if dedupe_key in seen:
                     continue
+                estimate_type = _estimate_type_label(f"{title}. {sentence}")
                 label = ("Published official forecast" if is_official and re.search(
                     r"\bforecast\b|\bforecasted\b", sentence_lower) else
                     "Published forecast" if re.search(r"\bforecast\b|\bforecasted\b", sentence_lower) else
                     "Published official estimate" if is_official else "Published source claim")
+                if estimate_type:
+                    label = f"{label} ({estimate_type})"
                 rows.append({"title": title or url, "url": url, "published_date": item.get("published_date", ""),
                              "year": row_period, "indicator": indicator,
                              "year_start": str(row_year), "value": match.group(1), "unit": unit,
                              "excerpt": sentence.strip(), "district": reported_district,
                              "season": season_match[1].title() if season_match else "Not stated",
                              "geography": geography_label, "scope_match": yearless_scope_match,
-                             "label": label})
+                             "label": label, "estimate_type": estimate_type})
                 seen.add(dedupe_key)
     return rows
 
@@ -566,7 +653,8 @@ def _relevant_tavily_excerpts(query: str, web_results: list[dict[str, str]]) -> 
 
 
 def _production_report(query: str, results: list[AgricultureResult],
-                       web_results: list[dict[str, str]]) -> tuple[str, list[dict[str, Any]]]:
+                       web_results: list[dict[str, str]],
+                       preferred_excerpt: dict[str, Any] | None = None) -> tuple[str, list[dict[str, Any]]]:
     scope = query_parameters(query)
     min_year, max_year = _production_year_window(query)
     requested_year = scope.period if scope.period and re.fullmatch(r"\d{4}", scope.period) else None
@@ -581,6 +669,14 @@ def _production_report(query: str, results: list[AgricultureResult],
     if requested_year:
         structured = [record for record in structured if record.period.startswith(requested_year)]
     structured.sort(key=lambda record: record.period, reverse=True)
+    geo_requested = bool(scope.state or scope.district)
+    if geo_requested:
+        in_scope_structured = [record for record in structured if _structured_in_scope(record, scope)]
+        out_scope_structured = [record for record in structured if record not in in_scope_structured]
+    else:
+        in_scope_structured = list(structured)
+        out_scope_structured = []
+    ordered_structured = in_scope_structured + out_scope_structured
     published = _production_tavily_rows(query, web_results)
     published.sort(key=lambda row: (
         bool(row.get("scope_match")), int(row.get("year_start", "0")),
@@ -599,9 +695,13 @@ def _production_report(query: str, results: list[AgricultureResult],
     lines = ["## Agriculture diagnostic", ""]
     crop = scope.crop or (structured[0].crop if structured else "requested crop")
     geography = ", ".join(value for value in (scope.district, scope.state) if value) or "the geography stated by the sources"
-    displayed_periods = sorted(set(record.period for record in structured)
-                               | {row["year"] for row in published_for_scope})
+    primary_periods = sorted(set(record.period for record in in_scope_structured)
+                             | {row["year"] for row in published_for_scope})
+    fallback_periods = sorted(set(record.period for record in out_scope_structured)
+                              | {row["year"] for row in broader_published})
+    displayed_periods = primary_periods or fallback_periods
     period = requested_year or (", ".join(displayed_periods) if displayed_periods else "the periods shown below")
+    has_primary = bool(in_scope_structured) or bool(published_for_scope)
     if latest_query and government_is_old and publication_is_newer:
         lines.append(f"**Answer:** The newest relevant published {crop} production figure found for {geography} "
                      f"is from {max(published_years)}; older structured observations are shown as historical context.")
@@ -609,15 +709,16 @@ def _production_report(query: str, results: list[AgricultureResult],
         lines.append(f"**Answer:** The structured records available for {crop} in {geography} are historical "
                      f"(latest returned year: {max(structured_years)}). No newer source-backed figure was found "
                      "in the retrieved publication excerpts.")
-    elif structured or published_for_scope:
+    elif has_primary:
         lines.append(f"**Answer:** Available {crop} production observations for {geography} are for {period}.")
-    elif broader_published:
-        lines.append(f"**Answer:** Recent source-reported {crop} figures are available as broader context; "
-                     f"the excerpts below do not establish that these figures apply specifically to {geography}.")
+    elif broader_published or out_scope_structured:
+        fallback_list = ", ".join(fallback_periods) if fallback_periods else "the periods shown below"
+        lines.append(f"**Answer:** Available {crop} production observations are for {fallback_list} as broader context; "
+                     f"the tables below do not establish that these figures apply specifically to {geography}.")
     elif related_excerpts:
-        lines.append(f"**Answer:** Recent source-reported {crop} production details were found in Tavily publications. "
-                     f"The excerpts below provide broader context for {geography}; they support a location-specific "
-                     "conclusion only when the source explicitly identifies that location.")
+        lines.append(f"**Answer:** The most relevant source-reported {crop} production detail found "
+                     f"for {geography} is shown below; it supports a location-specific conclusion "
+                     "only when the source explicitly identifies that location.")
     else:
         if requested_year and not min_year <= int(requested_year) <= max_year:
             lines.append(f"**Answer:** I can show production figures only from {min_year} through {max_year}; "
@@ -626,70 +727,111 @@ def _production_report(query: str, results: list[AgricultureResult],
             lines.append(f"**Answer:** The latest source checks returned no figure that can be attributed to "
                          f"{geography} within {min_year}–{max_year}. No older figure is substituted.")
 
-    if structured:
+    def _structured_row(record: Any) -> str:
+        citation = _citation(record)
+        citation["citation_id"] = len(citations) + 1
+        citations.append(citation)
+        where = " / ".join(value for value in (record.state, record.district) if value) or "Not stated"
+        season = record.season or "Not stated"
+        return (f"| {_table_cell(record.crop)} / {_table_cell(record.indicator)} | {_table_cell(where)} | "
+                f"{_table_cell(record.period)} | {_table_cell(season)} | {record.value:g} | "
+                f"{_table_cell(record.unit)} | [{_table_cell(record.source)}]({record.source_url}) [{len(citations)}] |")
+
+    if ordered_structured:
         historical_label = (f" (historical context; latest returned year {max(structured_years)})"
                             if latest_query and government_is_old else "")
         lines.extend(["", f"### Structured government observations{historical_label}", "",
                       "| Crop / indicator | State / district | Year | Season | Production | Unit | Source |",
                       "|---|---|---:|---|---:|---|---|"])
-        for record in structured:
-            citation = _citation(record)
-            citation["citation_id"] = len(citations) + 1
-            citations.append(citation)
-            where = " / ".join(value for value in (record.state, record.district) if value) or "Not stated"
-            season = record.season or "Not stated"
-            lines.append(f"| {_table_cell(record.crop)} / {_table_cell(record.indicator)} | {_table_cell(where)} | "
-                         f"{_table_cell(record.period)} | {_table_cell(season)} | {record.value:g} | "
-                         f"{_table_cell(record.unit)} | [{_table_cell(record.source)}]({record.source_url}) [{len(citations)}] |")
+        if out_scope_structured and in_scope_structured:
+            lines.extend(["", f"**Requested area — {geography}**", ""])
+            for record in in_scope_structured:
+                lines.append(_structured_row(record))
+            lines.extend(["", "**Broader context — national/other states (not the requested area)**", ""])
+            for record in out_scope_structured:
+                lines.append(_structured_row(record))
+        else:
+            for record in ordered_structured:
+                lines.append(_structured_row(record))
+    def _published_row(row: dict[str, str]) -> str:
+        citation_id = len(citations) + 1
+        estimate_note = f"; estimate: {row['estimate_type']}" if row.get("estimate_type") else ""
+        pub_note = f"; published {row['published_date'][:10]}" if row.get("published_date") else ""
+        citations.append({"citation_id": citation_id, "source_agent": "agriculture_sector",
+                          "source_authority": row["title"], "document_title": row["title"],
+                          "source_url": row["url"], "retrieval_url": row["url"],
+                          "source_category": "tavily", "published_figure": row["value"],
+                          "unit": row["unit"], "observation_period": row["year"],
+                          "publication_date": row.get("published_date") or None,
+                          "estimate_type": row.get("estimate_type") or None,
+                          "source_note": row["label"] + estimate_note + pub_note + (
+                              "; broader context, not requested-area data"
+                              if not row.get("scope_match") else "")})
+        source_title = row["title"]
+        if row.get("published_date"):
+            source_title += f" (published {row['published_date'][:10]})"
+        if row.get("estimate_type"):
+            source_title += f" [{row['estimate_type']}]"
+        return (f"| {_table_cell(crop)} / {_table_cell(row.get('indicator', 'Crop production'))} "
+                f"({_table_cell(row['label'])}) | "
+                f"{_table_cell(row.get('geography', geography))} | "
+                f"{_table_cell(row.get('district', 'Not stated'))} | {_table_cell(row['year'])} | "
+                f"{_table_cell(row.get('season', 'Not stated'))} | "
+                f"{_table_cell(row['value'])} {_table_cell(row['unit'])} | "
+                f"[{_table_cell(source_title)}]({row['url']}) [{citation_id}] |")
+
     if published:
         lines.extend(["", "### Published source figures", "",
                       "These are publication claims or estimates, not raw structured dataset observations.", "",
                       "| Crop / indicator | Scope | District | Year | Season | Published figure | Source |",
                       "|---|---|---|---:|---|---:|---|"])
-        for row in published:
-            citation_id = len(citations) + 1
-            citations.append({"citation_id": citation_id, "source_agent": "agriculture_sector",
-                              "source_authority": row["title"], "document_title": row["title"],
-                              "source_url": row["url"], "retrieval_url": row["url"],
-                              "source_category": "tavily", "published_figure": row["value"],
-                              "unit": row["unit"], "observation_period": row["year"],
-                              "publication_date": row.get("published_date") or None,
-                              "source_note": row["label"] + ("; broader context, not requested-area data"
-                                                             if not row.get("scope_match") else "")})
-            source_title = row["title"]
-            if row.get("published_date"):
-                source_title += f" (published {row['published_date'][:10]})"
-            lines.append(f"| {_table_cell(crop)} / {_table_cell(row.get('indicator', 'Crop production'))} "
-                         f"({_table_cell(row['label'])}) | "
-                         f"{_table_cell(row.get('geography', geography))} | "
-                         f"{_table_cell(row.get('district', 'Not stated'))} | {_table_cell(row['year'])} | "
-                         f"{_table_cell(row.get('season', 'Not stated'))} | "
-                         f"{_table_cell(row['value'])} {_table_cell(row['unit'])} | "
-                         f"[{_table_cell(source_title)}]({row['url']}) [{citation_id}] |")
+        if published_for_scope and broader_published:
+            lines.extend(["", f"**Requested area — {geography}**", ""])
+            for row in published_for_scope:
+                lines.append(_published_row(row))
+            lines.extend(["", "**Broader context — not the requested area**", ""])
+            for row in broader_published:
+                lines.append(_published_row(row))
+        else:
+            for row in published:
+                lines.append(_published_row(row))
     if related_excerpts and not published:
-        lines.extend(["", "### Related Tavily publication details", "",
-                      "These source excerpts are useful context; they do not establish a district-level observation "
-                      "unless the scope is stated in the excerpt.", "",
+        # Show only the single best-matching excerpt instead of dumping every
+        # loosely related hit for the same year. The async node picks the same
+        # winner with LLM reasoning and answers from it; an explicitly passed
+        # pick always wins so the answer and the supporting row agree.
+        dims_for_pick = _query_dims(query)
+        if preferred_excerpt is not None and any(
+                item.get("url") == preferred_excerpt.get("url")
+                and item.get("relevant_excerpt") == preferred_excerpt.get("relevant_excerpt")
+                for item in related_excerpts):
+            best = preferred_excerpt
+        else:
+            best = max(related_excerpts,
+                       key=lambda item: (score_excerpt(dims_for_pick, item)[0],
+                                         str(item.get("relevant_year") or "")))
+        lines.extend(["", "### Most relevant publication detail", "",
                       "| Year | Source-reported detail | Source |",
                       "|---:|---|---|"])
-        for item in related_excerpts:
-            citation_id = len(citations) + 1
-            title, url = item.get("title") or "Source", item.get("url") or ""
-            citations.append({"citation_id": citation_id, "source_agent": "agriculture_sector",
-                              "source_authority": title, "document_title": title,
-                              "source_url": url, "retrieval_url": url,
-                              "source_category": "tavily", "observation_period": item.get("relevant_year"),
-                              "source_note": "Relevant publication excerpt; geographic scope not inferred"})
-            lines.append(f"| {_table_cell(item.get('relevant_year', 'Not stated'))} | "
-                         f"{_table_cell(item.get('relevant_excerpt', ''))} | [{_table_cell(title)}]({url}) [{citation_id}] |")
+        citation_id = len(citations) + 1
+        title, url = best.get("title") or "Source", best.get("url") or ""
+        citations.append({"citation_id": citation_id, "source_agent": "agriculture_sector",
+                          "source_authority": title, "document_title": title,
+                          "source_url": url, "retrieval_url": url,
+                          "source_category": "tavily", "observation_period": best.get("relevant_year"),
+                          "source_note": "Most relevant publication excerpt; geographic scope not inferred"})
+        lines.append(f"| {_table_cell(best.get('relevant_year', 'Not stated'))} | "
+                     f"{_table_cell(best.get('relevant_excerpt', ''))} | [{_table_cell(title)}]({url}) [{citation_id}] |")
     lines.extend(["", "### Explanation", ""])
-    periods = sorted({record.period for record in structured})
-    evidence_years = set(periods) | {row.get("year_start", row["year"]) for row in published}
+    evidence_basis = in_scope_structured if (geo_requested and in_scope_structured) else ordered_structured
+    periods = sorted({record.period for record in evidence_basis})
+    evidence_years = set(periods) | {row.get("year_start", row["year"]) for row in published_for_scope} | (
+        {row.get("year_start", row["year"]) for row in broader_published} if not published_for_scope else set())
     if len(evidence_years) == 1 and trend_query:
         lines.append("The available figures cover one year, so they do not establish a multi-year trend.")
-    elif len(periods) == 1 and len(structured) > 1:
-        high = max(structured, key=lambda record: record.value)
-        low = min(structured, key=lambda record: record.value)
+    elif len(periods) == 1 and len(evidence_basis) > 1:
+        high = max(evidence_basis, key=lambda record: record.value)
+        low = min(evidence_basis, key=lambda record: record.value)
         def place_label(record: AgricultureObservation) -> str:
             place = record.district or record.state or "reported area"
             return f"{place} ({record.season})" if record.season else place
@@ -701,9 +843,9 @@ def _production_report(query: str, results: list[AgricultureResult],
                          "or a statewide total.")
     elif len(periods) > 1:
         coverage: dict[str, set[tuple[Any, ...]]] = {}
-        for record in structured:
+        for record in evidence_basis:
             coverage.setdefault(record.period, set()).add((record.state, record.district, record.season))
-        comparable = (len({(record.unit, record.source) for record in structured}) == 1
+        comparable = (len({(record.unit, record.source) for record in evidence_basis}) == 1
                       and len({frozenset(items) for items in coverage.values()}) == 1)
         if comparable:
             if trend_query:
@@ -713,27 +855,45 @@ def _production_report(query: str, results: list[AgricultureResult],
             if trend_query:
                 lines.append("Coverage differs by geography, season, unit, or source; these records should not be "
                              "combined into a single trend or total.")
-        for result in results:
-            if result.tool != "get_production_trend" or not result.records:
-                continue
-            change = _window_change(result, result.records[-1])
-            if change:
-                percent = (f" ({abs(change['percentage_change']):.2f}%)"
-                           if change.get("percentage_change") is not None else "")
-                direction = "increased" if change["value"] > 0 else "decreased" if change["value"] < 0 else "was unchanged"
-                lines.append(f"For comparable source observations, production {direction} by "
-                             f"{_number(abs(change['value']))} {change['unit']}{percent} from "
-                             f"{change['from_period']} to {change['period']}; this change is calculated "
-                             "from the cited values.")
+        group_changes = _comparable_structured_changes(evidence_basis)
+        if group_changes:
+            for change in group_changes[:3]:
+                direction = ("increased" if change["delta"] > 0 else "decreased"
+                             if change["delta"] < 0 else "was unchanged")
+                where = change["district"] or change["state"] or geography
+                season_note = f" ({change['season']})" if change.get("season") else ""
+                lines.append(f"For comparable source observations for {crop} in {where}{season_note}, "
+                             f"production {direction} by {_number(abs(change['delta']))} {change['unit']} "
+                             f"({abs(change['percentage_change']):.2f}%) from {change['from_period']} to "
+                             f"{change['period']}; this change is calculated from the cited values.")
+        else:
+            for result in results:
+                if result.tool != "get_production_trend" or not result.records:
+                    continue
+                change = _window_change(result, result.records[-1])
+                if change:
+                    percent = (f" ({abs(change['percentage_change']):.2f}%)"
+                               if change.get("percentage_change") is not None else "")
+                    direction = "increased" if change["value"] > 0 else "decreased" if change["value"] < 0 else "was unchanged"
+                    lines.append(f"For comparable source observations, production {direction} by "
+                                 f"{_number(abs(change['value']))} {change['unit']}{percent} from "
+                                 f"{change['from_period']} to {change['period']}; this change is calculated "
+                                 "from the cited values.")
     elif published:
-        by_year: dict[tuple[str, str], set[tuple[str, str]]] = {}
+        by_year: dict[tuple[str, str], set[tuple[str, str, str, str]]] = {}
         for row in published:
             comparison_key = (row["year"], row.get("geography", ""))
-            by_year.setdefault(comparison_key, set()).add((row["value"], row["unit"]))
+            by_year.setdefault(comparison_key, set()).add(
+                (row["value"], row["unit"], row.get("estimate_type") or "",
+                 row.get("published_date", "")[:10]))
         disagreements = {key: figures for key, figures in by_year.items() if len(figures) > 1}
         if disagreements:
             labels = ", ".join(f"{year} ({place})" for year, place in sorted(disagreements))
-            lines.append(f"The cited publications report different production figures for {labels}. "
+            detail = "; ".join(
+                f"{value} {unit}" + (f" [{estimate}]" if estimate else "")
+                + (f" (published {pub_date})" if pub_date else "")
+                for figures in disagreements.values() for value, unit, estimate, pub_date in sorted(figures))
+            lines.append(f"The cited publications report different production figures for {labels}: {detail}. "
                          "They are separate source-reported estimates; the available excerpts do not establish "
                          "that they use the same scope or definition, so they should not be combined or treated "
                          "as interchangeable.")
@@ -746,18 +906,67 @@ def _production_report(query: str, results: list[AgricultureResult],
         if trend_query:
             lines.append("These publication figures do not provide multiple comparable periods for the same "
                          "geography, season, unit, and source, so they do not establish a year-over-year trend.")
-    elif periods and not trend_query and len(periods) == 1 and len(structured) <= 1:
+    elif periods and not trend_query and len(periods) == 1 and len(evidence_basis) <= 1:
         lines.append("The table reports the source observation for the selected crop and geography.")
     elif not periods and not published and related_excerpts:
-        lines.append("The excerpts provide source context but do not support a district comparison or a year-over-year trend.")
+        lines.append("The most relevant excerpt is shown above; on its own it does not support a district "
+                     "comparison or a year-over-year trend.")
     elif not periods and not published:
         lines.append("The response is limited to source-backed figures and details returned for the requested period and scope.")
-    if published and structured:
+    if published and ordered_structured:
         lines.append("Structured observations and published estimates are shown separately because their "
                      "periods or coverage may differ.")
     if citations:
         lines.extend(["", "### Sources", "", "Source links and available observation metadata are attached to each table row."])
     return "\n".join(lines), citations
+
+
+def _safe_float(text: Any) -> float | None:
+    try:
+        return float(str(text).replace(",", ""))
+    except (TypeError, ValueError):
+        return None
+
+
+def _query_dims(query: str) -> dict[str, Any]:
+    """Parsed user requirement used by Agriculture answer selection."""
+    scope = query_parameters(query)
+    geography = ", ".join(value for value in (scope.district, scope.state) if value)
+    period = scope.period if scope.period and re.fullmatch(r"\d{4}", scope.period) else ""
+    if not period and (scope.start_year or scope.end_year):
+        period = str(scope.start_year or scope.end_year)
+    indicator = "production" if _is_crop_data_query(query) else ""
+    if not indicator:
+        lowered = query.casefold()
+        for name in ("yield", "area", "price", "rainfall", "msp"):
+            if name in lowered:
+                indicator = name
+                break
+    return {"crop": scope.crop or scope.commodity or "", "indicator": indicator or "production",
+            "geography": geography, "period": period,
+            "season": "", "district": scope.district or "", "state": scope.state or ""}
+
+
+def _structured_selection_rows(records: list[Any]) -> list[dict[str, Any]]:
+    rows = []
+    for record in records:
+        geo = " / ".join(value for value in (
+            getattr(record, "state", None), getattr(record, "district", None)) if value)
+        try:
+            numeric = float(getattr(record, "value", None))  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            numeric = None
+        rows.append({
+            "value": numeric, "unit": getattr(record, "unit", None),
+            "indicator": getattr(record, "indicator", None) or "Crop production",
+            "crop": getattr(record, "crop", None) or getattr(record, "commodity", None) or "",
+            "geography": geo, "period": getattr(record, "period", None) or "",
+            "season": getattr(record, "season", None) or "",
+            "source_name": getattr(record, "source", None) or "",
+            "source_url": getattr(record, "source_url", None) or "",
+            "scope_match": True,
+        })
+    return rows
 
 
 def _display_records(result: AgricultureResult) -> list[Any]:
@@ -788,10 +997,12 @@ def _friendly_error(message: str) -> str:
 
 
 def _report(query: str, results: list[AgricultureResult],
-            web_results: list[dict[str, str]] | None = None) -> tuple[str, list[dict[str, Any]]]:
+            web_results: list[dict[str, str]] | None = None,
+            preferred_excerpt: dict[str, Any] | None = None) -> tuple[str, list[dict[str, Any]]]:
     """Build a readable report where every displayed number has a numbered citation."""
     if any(result.tool in {"get_crop_production", "get_production_trend"} for result in results):
-        return _production_report(query, results, web_results or [])
+        return _production_report(query, results, web_results or [],
+                                  preferred_excerpt=preferred_excerpt)
     if any(result.tool == "get_crop_list" for result in results):
         records = [record for result in results for record in result.records]
         names = [getattr(record, "name", "") for record in records if getattr(record, "name", "")]
@@ -821,8 +1032,8 @@ def _report(query: str, results: list[AgricultureResult],
         records = [record for result in results for record in result.records
                    if isinstance(record, WeatherObservation)]
         if not records:
-            details = "; ".join(error.message for result in results for error in result.errors)
-            return "## Agriculture diagnostic\n\n**Current weather unavailable.** " + details, []
+            return ("## Agriculture diagnostic\n\nI couldn't find verified current weather "
+                    "for this location in the sources I checked."), []
         first = records[0]
         citations = [{**record.citation(), "citation_id": index}
                      for index, record in enumerate(records, 1)]
@@ -977,15 +1188,13 @@ def _report(query: str, results: list[AgricultureResult],
                           f"- Source fields: {first.source_filters.get('source_fields', {})}",
                           "- Table observations are source-reported; changes and ratios are calculated."])
     else:
-        requested = ", ".join(result.tool.removeprefix("get_").replace("_", " ") for result in results)
         if results and all(result.tool in {"get_msp", "get_msp_history", "get_msp_gap"}
                            for result in results):
-            lines.extend(["**MSP data unavailable.** The official MSP release did not return "
-                          "a verified observation for this request. See the source error below."])
+            lines.extend(["I couldn't find a verified MSP figure for this request in the official release."])
         else:
             lines.extend([
-                "**Result: data unavailable.** No verified observation was returned, so no numeric answer was generated.",
-                "", f"Requested data: {requested or 'no matching Agriculture dataset'}.",
+                "I couldn't find a verified figure for this request in the sources I checked, "
+                "so I'm not guessing a number.",
             ])
 
     notes = sorted({
@@ -1006,9 +1215,8 @@ def _weather_report(query: str, results: list[AgricultureResult]) -> tuple[str, 
     records = [record for result in results for record in result.records
                if isinstance(record, WeatherObservation)]
     if not records:
-        errors = "; ".join(error.message for result in results for error in result.errors)
-        return ("## Agriculture diagnostic\n\n**Weather data unavailable.** "
-                + (errors or "Open-Meteo returned no dated observations.")), citations
+        return ("## Agriculture diagnostic\n\nI couldn't find verified weather observations "
+                "for this request in the sources I checked."), citations
 
     citation_ids: dict[str, int] = {}
 
@@ -1043,7 +1251,7 @@ def _weather_report(query: str, results: list[AgricultureResult]) -> tuple[str, 
         def cell(metric: str, unit: str) -> str:
             item = values.get(metric)
             if not item:
-                return "Unavailable"
+                return "Not reported"
             record, reference = item
             return f"{_number(record.value)} {unit} [{reference}]"
 
@@ -1426,14 +1634,54 @@ async def agriculture_agent_node(state: dict[str, Any]) -> dict[str, Any]:
         logger.info("Tavily fallback status=%s qualifying_results=%d",
                     freshness["tavily_search"], len(web_results))
     report, citations = _report(query, results, web_results)
-    if tavily_failed and any(result.tool in {"get_crop_production", "get_production_trend"}
-                             for result in results):
-        report += ("\n\n**Search limitation:** The structured data had no observations in the requested year range, "
-                   "and the live Tavily search could not be completed. No unverified figure is substituted.")
-    elif needs_tavily and not web_results and any(
-            result.tool in {"get_crop_production", "get_production_trend"} for result in results):
-        report += ("\n\nTavily was searched, but its results contained no production detail in the requested "
-                   "year range that could be tied to this crop. No older figure is substituted.")
+    dims = _query_dims(query)
+    tavily_calls = 1 if needs_tavily and not tavily_failed else 0
+    primary: PrimaryObservation | None = None
+    audit_trail: list[dict[str, Any]] = []
+    if production_query:
+        structured_rows = _structured_selection_rows(
+            [record for result in results for record in result.records
+             if result.tool in production_tools and isinstance(record, AgricultureObservation)])
+        published_rows = _production_tavily_rows(query, web_results)
+        primary, audit_trail = await select_primary(query, dims, structured_rows, published_rows)
+        if primary is None and tavily_calls < 2:
+            # One bounded targeted retry with an emphasized period/scope query.
+            retry_results = await _tavily_fallback(refined_query(query, dims)) or []
+            tavily_calls += 1
+            if retry_results:
+                web_results = web_results + [item for item in retry_results if item not in web_results]
+                published_rows = _production_tavily_rows(query, web_results)
+                primary, audit_trail = await select_primary(query, dims, structured_rows, published_rows)
+        if primary is None:
+            # Reason over the remaining related excerpts with the LLM and answer
+            # from the single best one instead of dumping every same-year hit.
+            # The report below renders this same pick, so the answer and the
+            # supporting row always agree.
+            related = _relevant_tavily_excerpts(query, web_results)
+            if related:
+                pick, pick_trail = await pick_best_excerpt(query, dims, related)
+                audit_trail = audit_trail + pick_trail
+                if pick is not None:
+                    pick_row = excerpt_to_published_row(dims, pick)
+                    if pick_row is not None:
+                        primary, pick_audit = await select_primary(query, dims, [], [pick_row])
+                        audit_trail = audit_trail + pick_audit
+                        if primary is not None:
+                            report, citations = _report(
+                                query, results, web_results, preferred_excerpt=pick)
+    else:
+        primary = _generic_primary(query, dims, results)
+    single_request = production_query and _is_single_data_query(query, dims)
+    if single_request:
+        # Single-data request: the user-facing answer is exactly the direct
+        # card — one validated observation, no extra tables or metrics.
+        card = render_answer_card(dims, primary)
+        report = sanitize_user_text(card)
+        answer = card
+    else:
+        answer = await render_final_answer(query, dims, primary)
+        if answer and (primary is not None or production_query):
+            report = f"{answer}\n\n{report}"
     if web_results:
         safe_publication_context = []
         for item in web_results:
@@ -1478,12 +1726,62 @@ async def agriculture_agent_node(state: dict[str, Any]) -> dict[str, Any]:
             else:
                 report += "\n\n### Explanation\n\n" + explanation
     if not names:
-        report = ("## Agriculture diagnostic\n\n**Out of scope.** Agriculture covers crops, mandi prices, "
-                  "MSP, rainfall, agricultural inputs, and schemes. No data tool was called.")
+        report = ("I can help with crops, mandi prices, MSP, rainfall, agricultural inputs, and schemes. "
+                  "Could you share a crop, location, or period to look up?")
+    report = sanitize_user_text(report)
     status = "unavailable" if not citations else "partial" if errors or not raw_records or stale else "completed"
     return {
         "agriculture_sector_analysis": report, "agriculture_sector_data": context,
         "agriculture_sector_citations": citations, "agriculture_sector_freshness": freshness,
         "agriculture_sector_errors": errors, "agriculture_sector_findings": findings,
         "agriculture_sector_status": status,
+        "agriculture_sector_answer": answer if (raw_records or web_results or primary) else report.splitlines()[0] if report else "",
+        "agriculture_sector_primary": primary.to_public_dict() if primary else None,
+        "agriculture_sector_validation": {"audits": audit_trail, "tavily_calls": tavily_calls},
     }
+
+
+def _is_single_data_query(query: str, dims: dict[str, Any]) -> bool:
+    """True when the user asked for one value, not a trend, range, or history."""
+    if re.search(r"\b(trend|historical|history|changed|change over time)\b", query, re.IGNORECASE):
+        return False
+    scope = query_parameters(query)
+    if scope.start_year or scope.end_year or scope.history_years:
+        return False
+    if re.search(r"\bfrom\b.+\b(through|to|and)\b", query, re.IGNORECASE):
+        return False
+    return True
+
+
+def _generic_primary(query: str, dims: dict[str, Any],
+                     results: list[AgricultureResult]) -> PrimaryObservation | None:
+    """Single latest observation for non-production queries (mandi, MSP, weather)."""
+    requested_metric = str(dims.get("indicator") or "")
+    for result in results:
+        if not result.records:
+            continue
+        record = result.records[-1]
+        indicator = str(getattr(record, "indicator", None) or result.tool)
+        if metric_mismatch(requested_metric, indicator):
+            # Never substitute another metric (e.g. area for a yield request).
+            continue
+        value = getattr(record, "value", None)
+        if value is None:
+            continue
+        geo = " / ".join(str(v) for v in (
+            getattr(record, "state", None), getattr(record, "district", None),
+            getattr(record, "market", None), getattr(record, "location", None),
+            getattr(record, "display_name", None)) if v) or dims.get("geography") or ""
+        try:
+            value_text = f"{value:g}"
+        except (TypeError, ValueError):
+            value_text = str(value)
+        return PrimaryObservation(
+            value_text=value_text, unit=str(getattr(record, "unit", "") or ""),
+            crop=str(getattr(record, "crop", None) or getattr(record, "commodity", None)
+                     or dims.get("crop") or ""),
+            indicator=str(getattr(record, "indicator", None) or result.tool),
+            geography=geo, period=str(getattr(record, "period", "") or ""),
+            source_name=str(getattr(record, "source", "") or ""),
+            source_url=str(getattr(record, "source_url", "") or ""))
+    return None

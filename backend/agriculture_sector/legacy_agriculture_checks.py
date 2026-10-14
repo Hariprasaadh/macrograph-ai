@@ -434,8 +434,9 @@ async def test_unavailable_report_does_not_invent_number(sources):
         "Data.gov.in MCP/resource mappings are not configured", "not_configured")
     result = await agriculture_agent_node({"query": "What is the current MSP for wheat?"})
     report = result["agriculture_sector_analysis"]
-    assert "**Result: data unavailable.**" in report
-    assert "No verified Data.gov.in dataset mapping" in report
+    assert "couldn't find a verified MSP figure" in report
+    assert "No verified Data.gov.in dataset mapping" not in report
+    assert "data unavailable" not in report.casefold()
     assert result["agriculture_sector_citations"] == []
 
 

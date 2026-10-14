@@ -28,6 +28,11 @@ class AgricultureAgentExecutor(AgentExecutor):
                 "citations": result["agriculture_sector_citations"],
                 "errors": result["agriculture_sector_errors"],
                 "analysis": result["agriculture_sector_analysis"],
+                # Public user-facing fields: the final natural-language answer and
+                # the single selected observation. Internal validation data stays
+                # under separate keys and is never rendered as the answer.
+                "answer": result.get("agriculture_sector_answer"),
+                "primary_observation": result.get("agriculture_sector_primary"),
             }
             artifact = A2AArtifact(name="Agriculture findings", type="json", content=content)
             await event_queue.emit(TaskArtifactUpdateEvent(task_id=context.task_id, artifact=artifact))

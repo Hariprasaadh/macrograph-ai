@@ -89,6 +89,16 @@ def ogd_fixture(monkeypatch):
     return state
 
 
+@pytest.fixture(autouse=True)
+def _deterministic_agriculture_llm(monkeypatch):
+    """Keep answer-selection tests offline: no live LLM calls, template answers."""
+    from core.orchestrator.llm_client import llm_client as llm_singleton
+    monkeypatch.setattr(llm_singleton, "_get_api_key", lambda: "")
+    import agriculture_sector.answer as answer_module
+    monkeypatch.setattr(answer_module, "audit_candidate_llm",
+                        AsyncMock(return_value={"verdict": "ABSTAIN", "reasons": ["test_no_llm"]}))
+
+
 def test_resource_ids_and_validation():
     import uuid
     assert uuid.UUID(MANDI.resource_id) != uuid.UUID(CROP.resource_id)
@@ -244,7 +254,7 @@ async def test_tavily_supplements_stale_crop_rows(ogd_fixture, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_tavily_network_failure_is_reported_as_failed_not_no_results(ogd_fixture, monkeypatch):
+async def test_tavily_network_failure_stays_conversational(ogd_fixture, monkeypatch):
     fallback = AsyncMock(return_value=None)
     monkeypatch.setattr("agriculture_sector.agent._tavily_fallback", fallback)
     monkeypatch.setattr("agriculture_sector.agent._llm_explanation", AsyncMock(return_value=None))
@@ -252,12 +262,13 @@ async def test_tavily_network_failure_is_reported_as_failed_not_no_results(ogd_f
         "query": "Show rice production in Punjab from 2023 through 2026."
     })
     assert result["agriculture_sector_freshness"]["tavily_search"] == "search_failed"
-    assert "live Tavily search could not be completed" in result["agriculture_sector_analysis"]
-    fallback.assert_awaited_once()
+    assert "could not be completed" not in result["agriculture_sector_analysis"]
+    assert "I couldn't find a verified figure" in result["agriculture_sector_analysis"]
+    assert fallback.await_count in (1, 2)
 
 
 @pytest.mark.asyncio
-async def test_empty_tavily_search_is_reported_after_fallback_runs(ogd_fixture, monkeypatch):
+async def test_empty_tavily_search_stays_conversational(ogd_fixture, monkeypatch):
     fallback = AsyncMock(return_value=[])
     monkeypatch.setattr("agriculture_sector.agent._tavily_fallback", fallback)
     monkeypatch.setattr("agriculture_sector.agent._llm_explanation", AsyncMock(return_value=None))
@@ -265,8 +276,9 @@ async def test_empty_tavily_search_is_reported_after_fallback_runs(ogd_fixture, 
         "query": "Show rice production in Punjab from 2023 through 2026."
     })
     assert result["agriculture_sector_freshness"]["tavily_search"] == "searched_no_qualifying_results"
-    assert "Tavily was searched" in result["agriculture_sector_analysis"]
-    fallback.assert_awaited_once()
+    assert "Tavily was searched" not in result["agriculture_sector_analysis"]
+    assert "I couldn't find a verified figure" in result["agriculture_sector_analysis"]
+    assert fallback.await_count in (1, 2)
 
 
 @pytest.mark.asyncio
@@ -603,3 +615,395 @@ async def test_public_tools_registered():
     async with Client(mcp_server) as client:
         names = {tool.name for tool in await client.list_tools()}
     assert {"get_mandi_price", "get_crop_production", "get_production_trend"} <= names
+
+
+def _tn_rice(value: float, year: str, **overrides):
+    return report_crop(value, year, **{
+        "crop": "Rice", "state": "Tamil Nadu", "district": None,
+        "season": "Kharif", "unit": "tonnes", "indicator": "Crop production",
+    } | overrides)
+
+
+def test_tamil_nadu_rice_prioritizes_state_records_over_national():
+    tn = _tn_rice(500, "2024")
+    national = _tn_rice(1500, "2024", state=None, district=None)
+    report, citations = _report(
+        "Show rice production in Tamil Nadu.",
+        [AgricultureResult(tool="get_crop_production", status="available",
+                            records=[national, tn])],
+    )
+    assert "Tamil Nadu" in report
+    tn_pos = report.find("Tamil Nadu")
+    broader_pos = report.find("Broader context")
+    assert tn_pos >= 0 and broader_pos > tn_pos
+    assert len(citations) == 2
+    assert "do not establish that these figures apply specifically to" in report or "Broader context" in report
+
+
+def test_comparable_state_years_are_displayed_and_compared():
+    first = _tn_rice(400, "2024")
+    second = _tn_rice(500, "2025")
+    report, _ = _report(
+        "Show rice production in Tamil Nadu.",
+        [AgricultureResult(tool="get_crop_production", status="available",
+                            records=[first, second])],
+    )
+    assert "2024" in report and "2025" in report
+    assert "calculated from the cited values" in report
+    assert "25.00%" in report
+
+
+def test_same_year_estimate_revisions_stay_distinguishable():
+    query = "Show rice production in Tamil Nadu."
+    web = [
+        {"title": "Rice estimates TN", "url": "https://pib.gov.in/tn-a",
+         "excerpt": "Rice production in Tamil Nadu for 2024-25 is estimated at 50 lakh tonnes as per the third advance estimate.",
+         "published_date": "2025-05-01"},
+        {"title": "Rice estimates TN final", "url": "https://pib.gov.in/tn-b",
+         "excerpt": "Rice production in Tamil Nadu for 2024-25 is estimated at 55 lakh tonnes as per the final estimate.",
+         "published_date": "2025-09-01"},
+    ]
+    report, citations = _report(
+        query, [AgricultureResult(tool="get_crop_production", status="unavailable")], web)
+    assert "50" in report and "55" in report
+    assert "different production figures" in report
+    assert "should not be combined" in report
+    assert any("Advance Estimate" in (c.get("source_note") or "") for c in citations)
+    assert any("Final Estimate" in (c.get("source_note") or "") for c in citations)
+
+
+def test_missing_state_results_do_not_invent_figures():
+    other = _tn_rice(900, "2024", state="Punjab")
+    report, _ = _report(
+        "Show rice production in Tamil Nadu.",
+        [AgricultureResult(tool="get_crop_production", status="available",
+                            records=[other])],
+    )
+    assert "do not establish that these figures apply specifically to Tamil Nadu" in report
+    assert "Tamil Nadu" in report
+
+
+# ---------------------------------------------------------------------------
+# Primary-answer selection, final-answer rendering, and response isolation.
+# ---------------------------------------------------------------------------
+
+def _tn_published(value: str, year_text: str, **overrides):
+    row = {"title": "Tamil Nadu rice report", "url": "https://pib.gov.in/tn-rice",
+           "year": year_text, "year_start": year_text[:4], "indicator": "Crop production",
+           "value": value, "unit": "lakh tonnes", "district": "Not stated",
+           "season": "Kharif", "geography": "Tamil Nadu", "scope_match": True,
+           "label": "Published official estimate", "excerpt": ""}
+    return row | overrides
+
+
+def test_primary_selection_prefers_exact_state_and_period():
+    from agriculture_sector.answer import select_primary
+    dims = {"crop": "Rice", "indicator": "production", "geography": "Tamil Nadu", "period": "2025"}
+    structured = [
+        {"value": 500.0, "unit": "tonnes", "indicator": "Crop production", "crop": "Rice",
+         "geography": "Tamil Nadu", "period": "2024", "season": "Kharif",
+         "source_name": "data.gov.in", "source_url": "https://data.gov.in/rice", "scope_match": True},
+        {"value": 1500.0, "unit": "tonnes", "indicator": "Crop production", "crop": "Rice",
+         "geography": "India-wide context", "period": "2025", "season": "Kharif",
+         "source_name": "data.gov.in", "source_url": "https://data.gov.in/india", "scope_match": False},
+    ]
+    published = [_tn_published("80", "2025")]
+    import asyncio
+    primary, _ = asyncio.run(select_primary("Rice production in Tamil Nadu in 2025.", dims, structured, published))
+    assert primary is not None
+    assert primary.period == "2025" and "Tamil Nadu" in primary.geography
+    assert primary.value_text == "80" and primary.source_url == "https://pib.gov.in/tn-rice"
+
+
+def test_title_without_number_is_not_a_candidate():
+    rows = _production_tavily_rows(
+        "Show rice production in Tamil Nadu.",
+        [{"title": "Tamil Nadu rice policy announcement", "url": "https://pib.gov.in/policy",
+          "excerpt": "The government announced a new rice procurement policy for Tamil Nadu farmers."}])
+    assert rows == []
+
+
+def test_wrong_unit_and_geography_are_rejected():
+    from agriculture_sector.answer import deterministic_audit
+    dims = {"crop": "Rice", "indicator": "production", "geography": "Tamil Nadu", "period": "2025"}
+    candidate = {"value_num": 80.0, "value_text": "80", "unit": "", "indicator": "Crop production",
+                 "geography": "India-wide context", "period": "2025", "source_url": "https://example.test"}
+    failures = deterministic_audit(dims, candidate)
+    assert "unit_missing" in failures and "geography_mismatch" in failures
+
+
+def test_missing_year_selects_latest_with_true_period():
+    from agriculture_sector.answer import select_primary, template_answer
+    import asyncio
+    dims = {"crop": "Rice", "indicator": "production", "geography": "Tamil Nadu", "period": "2025"}
+    structured = [
+        {"value": 500.0, "unit": "tonnes", "indicator": "Crop production", "crop": "Rice",
+         "geography": "Tamil Nadu", "period": "2024", "season": "Kharif",
+         "source_name": "data.gov.in", "source_url": "https://data.gov.in/rice", "scope_match": True},
+    ]
+    primary, _ = asyncio.run(select_primary("Rice production in Tamil Nadu in 2025.", dims, structured, []))
+    assert primary is not None and primary.period == "2024" and primary.is_fallback
+    lead = template_answer(dims, primary)
+    assert "reported for **2024**" in lead and "500 tonnes" in lead
+
+
+@pytest.mark.asyncio
+async def test_llm_rejection_selects_next_candidate(monkeypatch):
+    import agriculture_sector.answer as answer_module
+    calls = {"n": 0}
+
+    async def fake_audit(query, dims, candidate, conflicts):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return {"verdict": "FAIL", "reasons": ["unit_mismatch"], "needs_retry": True}
+        return {"verdict": "PASS", "reasons": [], "needs_retry": False}
+
+    monkeypatch.setattr(answer_module, "audit_candidate_llm", fake_audit)
+    dims = {"crop": "Rice", "indicator": "production", "geography": "Tamil Nadu", "period": ""}
+    structured = [
+        {"value": 500.0, "unit": "tonnes", "indicator": "Crop production", "crop": "Rice",
+         "geography": "Tamil Nadu", "period": "2025", "season": "Kharif",
+         "source_name": "mospi", "source_url": "https://mospi.gov.in/a", "scope_match": True},
+        {"value": 510.0, "unit": "tonnes", "indicator": "Crop production", "crop": "Rice",
+         "geography": "Tamil Nadu", "period": "2024", "season": "Kharif",
+         "source_name": "data.gov.in", "source_url": "https://data.gov.in/b", "scope_match": True},
+    ]
+    primary, trail = await answer_module.select_primary("Rice production in Tamil Nadu.", dims, structured, [])
+    assert primary is not None and primary.period == "2024"
+    assert trail[0]["llm"]["verdict"] == "FAIL" and calls["n"] == 2
+
+
+def test_final_answer_has_one_value_and_no_table_or_verdicts():
+    from agriculture_sector.answer import render_final_answer, scan_forbidden
+    import asyncio
+    dims = {"crop": "Rice", "indicator": "production", "geography": "Tamil Nadu", "period": "2025"}
+    from agriculture_sector.answer import PrimaryObservation
+    primary = PrimaryObservation(
+        value_text="80", unit="lakh tonnes", crop="Rice", indicator="Crop production",
+        geography="Tamil Nadu", period="2025", source_name="Press Information Bureau",
+        source_url="https://pib.gov.in/tn-rice")
+    lead = asyncio.run(render_final_answer("Rice production in Tamil Nadu in 2025.", dims, primary))
+    assert "80" in lead and "lakh tonnes" in lead and "2025" in lead
+    assert "https://pib.gov.in/tn-rice" in lead
+    assert "|" not in lead and scan_forbidden(lead) == []
+
+
+@pytest.mark.asyncio
+async def test_node_answer_is_clean_and_cited(ogd_fixture, monkeypatch):
+    from agriculture_sector.answer import scan_forbidden
+    monkeypatch.setattr("agriculture_sector.agent._tavily_fallback", AsyncMock(return_value=[{
+        "title": "Tamil Nadu rice production", "url": "https://pib.gov.in/tn-rice",
+        "excerpt": "Rice production in Tamil Nadu for 2025 was 80 lakh tonnes.",
+        "published_date": "2026-01-05"}]))
+    monkeypatch.setattr("agriculture_sector.agent._llm_explanation", AsyncMock(return_value=None))
+    monkeypatch.setattr("agriculture_sector.answer.audit_candidate_llm",
+                        AsyncMock(return_value={"verdict": "PASS", "reasons": [], "needs_retry": False}))
+    result = await agriculture_agent_node({"query": "Rice production in Tamil Nadu in 2025."})
+    analysis = result["agriculture_sector_analysis"]
+    assert scan_forbidden(analysis) == []
+    primary = result["agriculture_sector_primary"]
+    assert primary is not None and primary["value"] == "80" and primary["period"] == "2025"
+    assert "**Metric:** Rice production — **80 lakh tonnes**" in analysis
+    assert "**Geography:** Tamil Nadu" in analysis
+    assert "**Reporting period:** 2025" in analysis
+    assert "https://pib.gov.in/tn-rice" in analysis
+    assert "|" not in analysis
+    urls = [c.get("source_url") or c.get("retrieval_url") for c in result["agriculture_sector_citations"]]
+    assert primary["source_url"] in urls
+    public = json.dumps({"answer": result["agriculture_sector_answer"], "primary": primary})
+    assert "verdict" not in public and "PASS" not in public
+
+
+@pytest.mark.asyncio
+async def test_node_empty_result_invents_no_number(ogd_fixture, monkeypatch):
+    from agriculture_sector.answer import scan_forbidden
+    monkeypatch.setattr("agriculture_sector.agent._tavily_fallback", AsyncMock(return_value=[]))
+    monkeypatch.setattr("agriculture_sector.agent._llm_explanation", AsyncMock(return_value=None))
+    result = await agriculture_agent_node({"query": "Rice production in Tamil Nadu in 2025."})
+    lead = result["agriculture_sector_answer"]
+    assert "couldn't find a verified Rice production figure for Tamil Nadu for 2025" in lead
+    assert "tonnes" not in lead and "lakh" not in lead
+    assert scan_forbidden(result["agriculture_sector_analysis"]) == []
+
+
+def test_district_query_keeps_district_scope():
+    from agriculture_sector.answer import select_primary
+    import asyncio
+    dims = {"crop": "Ragi", "indicator": "production", "geography": "Rayagada", "period": "2015"}
+    structured = [
+        {"value": 120.0, "unit": "tonnes", "indicator": "Crop production", "crop": "Ragi",
+         "geography": "Odisha / Rayagada", "period": "2015", "season": "Kharif",
+         "source_name": "data.gov.in", "source_url": "https://data.gov.in/a", "scope_match": True},
+        {"value": 900.0, "unit": "tonnes", "indicator": "Crop production", "crop": "Ragi",
+         "geography": "Odisha", "period": "2015", "season": "Kharif",
+         "source_name": "data.gov.in", "source_url": "https://data.gov.in/b", "scope_match": True},
+    ]
+    primary, _ = asyncio.run(select_primary("Ragi production in Rayagada in 2015.", dims, structured, []))
+    assert primary is not None and "Rayagada" in primary.geography
+
+
+def test_duplicate_publications_yield_one_primary():
+    from agriculture_sector.answer import build_candidates
+    rows = [_tn_published("80", "2025"),
+            _tn_published("80", "2025", url="https://example.test/copy", title="Copy of TN rice report")]
+    candidates = build_candidates(
+        {"crop": "Rice", "indicator": "production", "geography": "Tamil Nadu", "period": "2025"},
+        [], rows)
+    assert len(candidates) == 1
+
+
+@pytest.mark.asyncio
+async def test_mospi_to_data_gov_fallback_order(ogd_fixture, monkeypatch):
+    from agriculture_sector.mcp_server import CLIENTS, run_tool
+    from agriculture_sector.client import SourceUnavailable
+    from agriculture_sector.models import AgricultureQuery
+    monkeypatch.setattr(CLIENTS["mospi"], "fetch",
+                        AsyncMock(side_effect=SourceUnavailable("Fixture MOSPI outage", "source_error")))
+    result = await run_tool("get_crop_production", AgricultureQuery(crop="Wheat"))
+    assert result.records and result.records[0].source_category == "data_gov"
+    assert result.errors and result.errors[0].source == "mospi"
+
+
+def test_capital_market_implementation_untouched():
+    from pathlib import Path
+    cap = Path(__file__).parents[1] / "capital_market_sector" / "agent.py"
+    assert "agriculture_sector_answer" not in cap.read_text()
+    assert "select_primary" not in cap.read_text()
+
+
+def test_metric_families_are_never_substituted():
+    from agriculture_sector.answer import deterministic_audit, metric_family_of, metric_mismatch
+    assert metric_family_of("Crop production") == "production"
+    assert metric_family_of("Crop yield") == "yield"
+    assert metric_family_of("Crop area") == "area"
+    assert metric_family_of("Mandi price") == "price"
+    assert metric_mismatch("production", "Crop yield")
+    assert metric_mismatch("yield", "Crop production")
+    assert metric_mismatch("production", "Crop area")
+    assert metric_mismatch("production", "Mandi price")
+    assert not metric_mismatch("production", "Crop production")
+    assert not metric_mismatch("price", "MSP")
+    candidate = {"value_num": 2.5, "value_text": "2.5", "unit": "tonnes/hectare",
+                 "indicator": "Crop yield", "geography": "Tamil Nadu", "period": "2025",
+                 "source_url": "https://data.gov.in/y"}
+    dims = {"crop": "Rice", "indicator": "production", "geography": "Tamil Nadu", "period": "2025"}
+    assert "metric_mismatch" in deterministic_audit(dims, candidate)
+
+
+def test_answer_card_has_only_requested_fields():
+    from agriculture_sector.answer import PrimaryObservation, render_answer_card, scan_forbidden
+    dims = {"crop": "Rice", "indicator": "production", "geography": "Tamil Nadu", "period": "2025"}
+    primary = PrimaryObservation(
+        value_text="80", unit="lakh tonnes", crop="Rice", indicator="Crop production",
+        geography="Tamil Nadu", period="2025", source_name="Press Information Bureau",
+        source_url="https://pib.gov.in/tn-rice", estimate_status="Third Advance Estimate")
+    card = render_answer_card(dims, primary)
+    assert "**Metric:** Rice production — **80 lakh tonnes**" in card
+    assert "**Crop/commodity:** Rice" in card
+    assert "**Geography:** Tamil Nadu" in card
+    assert "**Reporting period:** 2025" in card
+    assert "**Source:** [Press Information Bureau](https://pib.gov.in/tn-rice)" in card
+    assert "Third Advance Estimate" in card
+    assert "|" not in card and scan_forbidden(card) == []
+    national = PrimaryObservation(
+        value_text="357", unit="MMT", crop="Rice", indicator="Crop production",
+        geography="India-wide context; not specific to the requested area", period="2024-25",
+        source_name="PIB", source_url="https://pib.gov.in/i",
+        is_fallback=True, fallback_note="covers India-wide context")
+    national_card = render_answer_card(dims, national)
+    assert "**Geography:** India (national-level)" in national_card
+    assert "in Tamil Nadu was" not in national_card
+    assert "covers India-wide context" in national_card
+    missing = render_answer_card(dims, None)
+    assert "couldn't find a verified Rice production figure" in missing
+    assert scan_forbidden(missing) == []
+
+
+# ---------------------------------------------------------------------------
+# Same-year excerpt hits: reason with the LLM and answer from one best pick.
+# ---------------------------------------------------------------------------
+
+_EXCERPT_WEB = [
+    {"title": "Tamil Nadu rice assessment", "url": "https://pib.gov.in/tn-rice",
+     "excerpt": "Rice production in Tamil Nadu for 2024-25 shows an increase of 75 lakh tonnes over 2023-24.",
+     "published_date": "2025-06-01"},
+    {"title": "National rice overview", "url": "https://pib.gov.in/india-rice",
+     "excerpt": "Rice production in India for 2024-25 shows an increase of 357 MMT over 2023-24.",
+     "published_date": "2025-06-02"},
+    {"title": "Advance estimates note", "url": "https://example.test/advance-note",
+     "excerpt": "The Government has released the 3rd advance estimates of rice production for 2025-26, providing a comprehensive assessment.",
+     "published_date": "2025-07-01"},
+]
+
+
+def test_excerpt_scoring_prefers_state_numeric_official():
+    from agriculture_sector.answer import score_excerpt
+    dims = {"crop": "Rice", "indicator": "production", "geography": "Tamil Nadu", "period": ""}
+    from agriculture_sector.agent import _relevant_tavily_excerpts
+    related = _relevant_tavily_excerpts("Rice production in Tamil Nadu.", _EXCERPT_WEB)
+    assert len(related) == 3
+    scores = {item["url"]: score_excerpt(dims, item)[0] for item in related}
+    assert scores["https://pib.gov.in/tn-rice"] > scores["https://pib.gov.in/india-rice"]
+    assert scores["https://pib.gov.in/india-rice"] > scores["https://example.test/advance-note"]
+
+
+def test_excerpt_without_number_never_becomes_candidate():
+    from agriculture_sector.answer import excerpt_to_published_row, extract_excerpt_figure
+    dims = {"crop": "Rice", "indicator": "production", "geography": "Tamil Nadu", "period": ""}
+    assert extract_excerpt_figure("A comprehensive assessment with no figures.") is None
+    blurb = {"relevant_excerpt": "The Government has released estimates of rice, providing an assessment.",
+             "relevant_year": "2025", "title": "Note", "url": "https://example.test/note"}
+    assert excerpt_to_published_row(dims, blurb) is None
+
+
+@pytest.mark.asyncio
+async def test_llm_pick_choice_is_used(monkeypatch):
+    from core.orchestrator.llm_client import llm_client as llm_singleton
+    from agriculture_sector.answer import pick_best_excerpt
+    monkeypatch.setattr(llm_singleton, "_get_api_key", lambda: "fixture-key")
+    monkeypatch.setattr(llm_singleton, "complete",
+                        AsyncMock(return_value='{"pick": 1, "reason": "geo_match"}'))
+    dims = {"crop": "Rice", "indicator": "production", "geography": "Tamil Nadu", "period": ""}
+    from agriculture_sector.agent import _relevant_tavily_excerpts
+    related = _relevant_tavily_excerpts("Rice production in Tamil Nadu.", _EXCERPT_WEB)
+    pick, trail = await pick_best_excerpt("Rice production in Tamil Nadu.", dims, related)
+    assert pick is not None and pick["url"] == "https://pib.gov.in/india-rice"
+    assert trail[-1]["llm_pick"] == 1
+
+
+@pytest.mark.asyncio
+async def test_node_answers_from_single_best_excerpt(ogd_fixture, monkeypatch):
+    from agriculture_sector.answer import scan_forbidden
+    monkeypatch.setattr("agriculture_sector.agent._tavily_fallback",
+                        AsyncMock(return_value=_EXCERPT_WEB))
+    monkeypatch.setattr("agriculture_sector.agent._llm_explanation", AsyncMock(return_value=None))
+    result = await agriculture_agent_node({"query": "Rice production in Tamil Nadu."})
+    analysis = result["agriculture_sector_analysis"]
+    lead = result["agriculture_sector_answer"]
+    assert "**Metric:** Rice production — **75 lakh tonnes**" in lead
+    assert "**Reporting period:** 2024-25" in lead
+    assert analysis == lead
+    assert "Related Tavily publication details" not in analysis
+    assert "357" not in analysis
+    excerpt_citations = [c for c in result["agriculture_sector_citations"]
+                         if c.get("source_category") == "tavily"]
+    assert len(excerpt_citations) == 1
+    assert excerpt_citations[0]["source_url"] == "https://pib.gov.in/tn-rice"
+    assert scan_forbidden(analysis) == []
+
+
+@pytest.mark.asyncio
+async def test_node_llm_pick_override_changes_answer(ogd_fixture, monkeypatch):
+    from agriculture_sector.agent import _relevant_tavily_excerpts
+    related = _relevant_tavily_excerpts("Rice production in Tamil Nadu.", _EXCERPT_WEB)
+    national = next(item for item in related if item["url"] == "https://pib.gov.in/india-rice")
+    monkeypatch.setattr("agriculture_sector.agent._tavily_fallback",
+                        AsyncMock(return_value=_EXCERPT_WEB))
+    monkeypatch.setattr("agriculture_sector.agent._llm_explanation", AsyncMock(return_value=None))
+    monkeypatch.setattr("agriculture_sector.agent.pick_best_excerpt",
+                        AsyncMock(return_value=(national, [{"llm_pick": "test"}])))
+    result = await agriculture_agent_node({"query": "Rice production in Tamil Nadu."})
+    lead = result["agriculture_sector_answer"]
+    assert "**357 MMT**" in lead and "India (national-level)" in lead
+    assert "covers India-wide context" in lead
+    assert "75 lakh tonnes" not in result["agriculture_sector_analysis"]
