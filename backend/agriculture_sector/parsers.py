@@ -82,6 +82,7 @@ def _parse(payload: SourcePayload, tool: str, model: type, aliases: tuple[str, .
             "upstream_tool": payload.binding.tool, "retrieved_at": payload.retrieved_at,
             "source_filters": payload.binding.arguments,
             "data_vintage": _get(row, "data_vintage", "last_updated"),
+            "source_note": row.get("source_note"),
             "freshness": row.get("freshness", "retrieved_live"),
         }
         fields = {key: value for key, value in row.items() if key in model.model_fields}
@@ -235,14 +236,17 @@ def filter_records(records: list, query: AgricultureQuery) -> list:
                     matches = False
         if matches:
             selected.append(record)
-    return sorted(selected, key=lambda r: r.period)[-query.limit:]
+    ordered = sorted(selected, key=lambda r: r.period)
+    # The OGD adapter has already enforced a bounded, complete paginated scope.
+    # Truncating here would silently invalidate trends, totals and rankings.
+    return ordered if ordered and ordered[0].source_category == "data_gov" else ordered[-query.limit:]
 
 
 def series_changes(records: list[AgricultureObservation]) -> list[dict]:
     """DuckDB lag per exact series; label interval change, never assume YoY/MoM."""
     if len(records) < 2:
         return []
-    keys = ("kind", "crop", "commodity", "state", "district", "market", "variety", "season", "unit", "frequency", "dataset", "source")
+    keys = ("kind", "crop", "commodity", "state", "district", "market", "variety", "grade", "season", "unit", "frequency", "dataset", "source")
     rows = [(i, json.dumps([getattr(r, k, None) for k in keys]), r.period, r.value)
             for i, r in enumerate(records)]
     with duckdb.connect(":memory:") as con:

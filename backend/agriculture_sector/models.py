@@ -9,7 +9,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 Text = Annotated[str, Field(min_length=1)]
-SourceCategory = Literal["agmarknet", "mospi", "weather_mcp", "data_gov", "faostat"]
+SourceCategory = Literal["agmarknet", "mospi", "weather_mcp", "data_gov", "faostat", "pib"]
 
 
 class AgricultureQuery(BaseModel):
@@ -78,6 +78,7 @@ class AgricultureObservation(Provenance):
     commodity: str | None = None
     market: str | None = None
     variety: str | None = None
+    grade: str | None = None
     season: str | None = None
 
     @field_validator("value", mode="before")

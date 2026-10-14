@@ -11,6 +11,9 @@ from fastmcp import FastMCP
 from .client import AgmarknetClient, DataGovClient, FaostatClient, MoSPIClient, SourceUnavailable, WeatherClient
 from .models import AgricultureQuery, AgricultureResult, SourceError
 from .parsers import PARSERS, filter_records, msp_gaps, rainfall_anomalies, series_changes
+from .ogd_mcp import fetch_ogd
+from .open_meteo import fetch_open_meteo
+from .msp_pib import fetch_rabi_msp
 
 logger = logging.getLogger(__name__)
 mcp_server = FastMCP("Agriculture Sector MCP Server", instructions=(
@@ -23,21 +26,21 @@ CLIENTS = {
     "weather_mcp": WeatherClient(), "data_gov": DataGovClient(), "faostat": FaostatClient(),
 }
 SOURCE_ROUTING = {
-    "crop_production": ("faostat", "mospi", "data_gov"),
+    "crop_production": ("mospi", "data_gov"),
     "crop_list": ("faostat",),
-    "crop_yield": ("mospi", "data_gov"),
-    "crop_area": ("mospi", "data_gov"),
-    "mandi_price": ("agmarknet",),
-    "market_arrivals": ("agmarknet",),
-    "msp": ("data_gov",),
+    "crop_yield": ("data_gov",),
+    "crop_area": ("data_gov",),
+    "mandi_price": ("data_gov",),
+    "market_arrivals": (),
+    "msp": ("pib",),
     "rainfall": ("weather_mcp",),
     "weather_current": ("weather_mcp",),
     "weather_forecast": ("weather_mcp",),
     "weather_historical": ("weather_mcp",),
     "weather_agriculture": ("weather_mcp",),
-    "monsoon": ("weather_mcp",),
-    "fertilizer": ("mospi", "data_gov"),
-    "irrigation": ("mospi", "data_gov"),
+    "monsoon": (),
+    "fertilizer": ("mospi",),
+    "irrigation": ("mospi",),
     "scheme": ("data_gov",),
 }
 # Each public logical tool resolves only to the declared agriculture dataset.
@@ -60,18 +63,29 @@ OPERATIONS = {
 
 async def _retrieve(operation: str, query: AgricultureQuery, tool: str) -> AgricultureResult:
     errors = []
+    if not SOURCE_ROUTING[operation]:
+        return AgricultureResult(tool=tool, status="unavailable", errors=[SourceError(
+            source="data_gov", code="unsupported",
+            message=f"The two configured data.gov.in resources do not contain {operation} data")])
     for source in SOURCE_ROUTING[operation]:
         try:
             # Trend tools may have separate history bindings; no invented tool names.
-            client = CLIENTS[source]
-            binding_key = operation
-            if tool in client.configuration().operations:
-                binding_key = tool
-            payload = await client.fetch(binding_key, query)
+            if source == "data_gov":
+                binding_key = tool if tool in {"get_production_trend", "get_state_crop_production",
+                                              "get_mandi_price_trend", "compare_mandi_prices"} else operation
+                payload = await fetch_ogd(binding_key, query)
+            elif source == "weather_mcp":
+                payload = await fetch_open_meteo(operation, query)
+            elif source == "pib":
+                payload = await fetch_rabi_msp(query)
+            else:
+                client = CLIENTS[source]
+                binding_key = tool if tool in client.configuration().operations else operation
+                payload = await client.fetch(binding_key, query)
             errors.extend(SourceError(source=source, code="missing_data", message=message)
                           for message in payload.warnings)
             parsed = PARSERS[operation](payload, tool)
-            records = parsed if operation.startswith("weather_") else filter_records(parsed, query)
+            records = parsed if operation.startswith("weather_") or operation == "crop_list" else filter_records(parsed, query)
             if operation == "rainfall" and query.days:
                 records = records[-query.days:]
             if not records:
@@ -151,7 +165,7 @@ async def run_tool(tool: str, query: AgricultureQuery) -> AgricultureResult:
         groups: dict[tuple, list] = {}
         for record in result.records:
             key = (record.period, record.unit, record.crop, record.commodity,
-                   record.variety, record.season, record.dataset, record.source)
+                   record.variety, record.grade, record.season, record.dataset, record.source)
             groups.setdefault(key, []).append(record)
         for group in groups.values():
             if len(group) < 2:

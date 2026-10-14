@@ -22,6 +22,7 @@ class PlatformSettings(BaseSettings):
     AGRICULTURE_WEATHER_SCRIPT: str = ".mcp-sources/Indian-Weather-MCP-Server/build/index.js"
     DATA_GOV_IN_API_KEY: SecretStr = SecretStr("")
     CEDA_API_KEY: SecretStr = SecretStr("")
+    TVLY_KEY_1: SecretStr = SecretStr("")
 
     # Base paths
     WORKSPACE_ROOT: Path = PROJECT_ROOT
